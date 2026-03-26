@@ -134,187 +134,189 @@ def ask():
     try:
         content = request.get_json()
         raw_msg = content['userRequest']['utterance']
-        utterance = raw_msg.strip()
+        utterance = raw_msg.strip().replace(" ", "")
+        all_digits = re.findall(r'\d+', raw_msg)
+        elv_no = all_digits[0][:7] if all_digits else ""
 
-        # ===== 1. 자격요건 (기존 기능 유지) =====
-        if "자격요건" in utterance.replace(" ", ""):
-            if "피난용_결과" in utterance:
-                return kakao_simple_text("🚨 피난용 → 자격증 필수")
+        # =========================================================
+        # [1] 안전관리자 현황 조회 (입력 유도)
+        # =========================================================
+        if "안전관리자현황조회" in utterance:
+            return kakao_res([{
+                "simpleText": {
+                    "text": "고유번호 7자리를 입력해주세요.\n(예: 0152144)"
+                }
+            }])
+
+        # =========================================================
+        # [2] 보험 의무 안내
+        # =========================================================
+        if "보험꼭가입하나" in utterance or utterance == "보험가입":
             return kakao_res([{
                 "basicCard": {
-                    "title": "🔍 [자격확인] 1단계",
-                    "description": "피난용 엘리베이터인가요?",
+                    "title": "🛡️ 보험 가입 의무 안내",
+                    "description": "승강기 책임보험은 법적 의무입니다.\n미가입 시 과태료가 부과됩니다.",
                     "buttons": [
-                        {"action": "message", "label": "예", "messageText": "자격요건_피난용_결과"},
-                        {"action": "message", "label": "아니오", "messageText": "자격요건_진단_16층"}
+                        {
+                            "action": "message",
+                            "label": "✅ 우리 건물 보험 확인",
+                            "messageText": "보험조회"
+                        }
                     ]
                 }
             }])
 
-        # ===== 2. 보험가입 릴레이 =====
-        if "보험가입" in utterance:
-            if "_" in utterance:
-                parts = utterance.split("_")
-                elv_no = parts[1] if len(parts) > 1 else ""
-                page = int(parts[2]) if len(parts) > 2 else 1
-                
-                info = get_info(elv_no)
-                elevators = get_building_elevators(info['addr'])
-                start = (page - 1) * 15
-                display = elevators[start:start+15]
-                
-                if not display:
-                    return kakao_simple_text("호기 정보가 없습니다.")
-                    
-                cards = []
-                for e in display:
-                    cards.append({
-                        "title": f"🛡️ {e['asign']}호기 ({e['no']})",
-                        "description": f"조회일: {TODAY_DATE}\n보험 가입 이력을 확인합니다.",
-                        "buttons": [{"action": "message", "label": "보험 리포트 보기", "messageText": f"조회보험_{e['no']}"}]
-                    })
-                
-                if start + 15 < len(elevators):
-                    cards.append({
-                        "title": "🚀 다음 리스트",
-                        "description": "다음 호기 목록",
-                        "buttons": [{"action": "message", "label": "다음 15개 보기", "messageText": f"보험가입_{elv_no}_{page+1}"}]
-                    })
-                
-                # 주의: 카카오톡 기본 Carousel 한도는 10개입니다. 초과 시 출력이 제한될 수 있습니다.
-                return kakao_res([{"carousel": {"type": "basicCard", "items": cards[:10]}}])
-            else:
-                return kakao_res([{
-                    "basicCard": {
-                        "title": "❓ 보험 꼭 가입해야 하나요?",
-                        "description": f"승강기 책임보험은 법적 의무입니다.\n(기준일: {TODAY_DATE})",
-                        "buttons": [{"action": "message", "label": "✅ 우리 건물 보험 확인", "messageText": "고유번호 7자리를 입력해주세요. (예: 보험가입_0152144)"}]
-                    }
-                }])
+        if "보험조회" in utterance:
+            return kakao_res([{
+                "simpleText": {
+                    "text": "고유번호 7자리를 입력해주세요.\n(예: 보험_조회_0152144)"
+                }
+            }])
 
-        if "조회보험_" in utterance:
-            elv_no = utterance.split("_")[1]
-            info = get_info(elv_no)
-            return kakao_simple_text(make_insur_report(elv_no, info))
+        # =========================================================
+        # [3] 자체점검 안내
+        # =========================================================
+        if "자체점검필수인가" in utterance or utterance == "자체점검":
+            return kakao_res([{
+                "basicCard": {
+                    "title": "🛠️ 자체점검 의무 안내",
+                    "description": "승강기는 매월 1회 이상 자체점검을 실시해야 합니다.",
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "✅ 우리 점검 이력 확인",
+                            "messageText": "자체점검조회"
+                        }
+                    ]
+                }
+            }])
 
+        if "자체점검조회" in utterance:
+            return kakao_res([{
+                "simpleText": {
+                    "text": "고유번호 7자리를 입력해주세요.\n(예: 자체점검_0152144)"
+                }
+            }])
 
-        # ===== 3. 자체점검 릴레이 =====
-        if "자체점검" in utterance:
-            if "_" in utterance:
-                parts = utterance.split("_")
-                elv_no = parts[1] if len(parts) > 1 else ""
-                page = int(parts[2]) if len(parts) > 2 else 1
-                
-                info = get_info(elv_no)
-                elevators = get_building_elevators(info['addr'])
-                start = (page - 1) * 15
-                display = elevators[start:start+15]
-                
-                if not display:
-                    return kakao_simple_text("호기 정보가 없습니다.")
-                    
-                cards = []
-                for e in display:
-                    cards.append({
-                        "title": f"🛠️ {e['asign']}호기 ({e['no']})",
-                        "description": f"조회일: {TODAY_DATE}\n자체점검 3개월 이력을 확인합니다.",
-                        "buttons": [{"action": "message", "label": "점검 리포트 보기", "messageText": f"조회점검_{e['no']}"}]
-                    })
-                
-                if start + 15 < len(elevators):
-                    cards.append({
-                        "title": "🚀 다음 리스트",
-                        "description": "다음 호기 목록",
-                        "buttons": [{"action": "message", "label": "다음 15개 보기", "messageText": f"자체점검_{elv_no}_{page+1}"}]
-                    })
-                return kakao_res([{"carousel": {"type": "basicCard", "items": cards[:10]}}])
-            else:
-                return kakao_res([{
-                    "basicCard": {
-                        "title": "🛠️ 자체점검 필수인가요?",
-                        "description": f"매월 1회 이상 자체점검을 실시해야 합니다.\n(기준일: {TODAY_DATE})",
-                        "buttons": [{"action": "message", "label": "✅ 우리 점검 이력 확인", "messageText": "고유번호 7자리를 입력해주세요. (예: 자체점검_0152144)"}]
-                    }
-                }])
-
-        if "조회점검_" in utterance:
-            elv_no = utterance.split("_")[1]
-            info = get_info(elv_no)
-            return kakao_simple_text(make_check_report(elv_no, info))
-
-
-        # ===== 4. 정밀검사 릴레이 =====
+        # =========================================================
+        # [4] 정밀검사 안내
+        # =========================================================
         if "정밀검사" in utterance:
-            if "조회_" in utterance:
-                elv_no = utterance.split("_")[2]
-                info = get_info(elv_no)
-                return kakao_simple_text(make_spec_report(elv_no, info))
-            else:
+            return kakao_res([{
+                "basicCard": {
+                    "title": "📅 정밀검사란?",
+                    "description": "설치 후 15년이 경과한 승강기는 정밀안전검사 대상입니다.",
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "🔢 설치연도로 계산",
+                            "messageText": "정밀검사_연도계산"
+                        },
+                        {
+                            "action": "message",
+                            "label": "🔍 고유번호로 조회",
+                            "messageText": "정밀검사_번호조회"
+                        }
+                    ]
+                }
+            }])
+
+        if "정밀검사_연도계산" in utterance:
+            return kakao_res([{
+                "simpleText": {
+                    "text": "설치 연도 4자리를 입력해주세요.\n(예: 2010)"
+                }
+            }])
+
+        if re.match(r'^\d{4}$', utterance):
+            year = int(utterance)
+            return kakao_res([{
+                "simpleText": {
+                    "text": f"[정밀검사 주기]\n\n"
+                            f"✔️ 15년차: {year+15}년\n"
+                            f"✔️ 18년차: {year+18}년\n"
+                            f"✔️ 21년차: {year+21}년"
+                }
+            }])
+
+        if "정밀검사_번호조회" in utterance:
+            return kakao_res([{
+                "simpleText": {
+                    "text": "고유번호 7자리를 입력해주세요.\n(예: 정밀검사_조회_0152144)"
+                }
+            }])
+
+        if "정밀검사_조회_" in utterance:
+            elv_no = utterance.split("_")[-1]
+            info = get_info(elv_no)
+            return kakao_res([{
+                "simpleText": {
+                    "text": make_spec_report(elv_no, info)
+                }
+            }])
+
+        # =========================================================
+        # [5] 고유번호 기반 조회 (핵심 기능)
+        # =========================================================
+        if len(elv_no) == 7:
+            info = get_info(elv_no)
+
+            # 안전관리자 조회
+            if "법적의무사항이행확인" in utterance:
+                root = get_api(URLS['SAFE'], {'serviceKey': KEY, 'elevator_no': elv_no})
+                name, end_de = "미등록", "정보없음"
+
+                if root is not None:
+                    items = root.findall('.//item')
+                    if items:
+                        m = items[-1]
+                        name = m.findtext('safeMngrNm') or m.findtext('shuttleMngrNm') or "성함미상"
+                        end_de = format_dt(m.findtext('valdEndDt') or m.findtext('eduEndDe'))
+
+                desc = (f"✅ [안전관리자 선임 확인]\n"
+                        f"건물명: {info['buldNm']}\n"
+                        f"👤 성함: {name}\n"
+                        f"🎓 만료: {end_de}")
+
                 return kakao_res([{
                     "basicCard": {
-                        "title": "📅 정밀검사란 무엇인가요?",
-                        "description": f"설치 후 15년이 경과한 승강기는 정밀안전검사 대상입니다.\n(기준일: {TODAY_DATE})",
+                        "title": "⚖️ 법적 의무사항 이행 확인",
+                        "description": desc,
                         "buttons": [
-                            {"action": "message", "label": "🔢 설치연도로 계산하기", "messageText": "연도계산"},
-                            {"action": "message", "label": "🔍 설치 날짜를 몰라요", "messageText": "고유번호 7자리를 입력해주세요. (예: 정밀검사_조회_0152144)"}
+                            {"action": "message", "label": "📅 선임 기한 안내", "messageText": "언제까지선임해야하나요"},
+                            {"action": "message", "label": "🎓 교육 이수 기준", "messageText": "교육은언제까지받나요"}
                         ]
                     }
                 }])
 
-        if "연도계산" in utterance:
-            return kakao_simple_text("설치 연도 4자리를 입력해주세요. (예: 2010)")
+            # 보험 조회
+            if "보험_조회_" in utterance:
+                return kakao_res([{
+                    "simpleText": {
+                        "text": make_insur_report(elv_no, info)
+                    }
+                }])
 
-        if re.match(r'^\d{4}$', utterance.strip()):
-            year = int(utterance.strip())
-            return kakao_simple_text(f"[{year}년 설치 승강기 주기 계산]\n기준일: {TODAY_DATE}\n- 15년차: {year+15}년\n- 18년차: {year+18}년\n- 21년차: {year+21}년")
+            # 자체점검 조회
+            if "자체점검_" in utterance:
+                return kakao_res([{
+                    "simpleText": {
+                        "text": make_check_report(elv_no, info)
+                    }
+                }])
 
-
-        # ===== 5. 고유번호 단독 입력 (안전관리자 현황 및 기본 리스트) =====
-        all_digits = re.findall(r'\d{7}', raw_msg)
-        if all_digits:
-            elv_no = all_digits[0]
-            # '0152144 다음 리스트 2' 형태 파싱
-            page_match = re.search(r'다음 리스트\s*(\d+)', utterance)
-            page = int(page_match.group(1)) if page_match else 1
-            
-            info = get_info(elv_no)
-            elevators = get_building_elevators(info['addr'])
-            start = (page - 1) * 15
-            display = elevators[start:start+15]
-            
-            cards = []
-            if page == 1:
-                cards.append({
-                    "title": f"🏢 {info['buldNm']}",
-                    "description": f"주소: {info['addr']}\n기준일: {TODAY_DATE}",
-                    "buttons": [{"action": "message", "label": "👤 선임 정보 확인", "messageText": f"선임정보_{elv_no}"}]
-                })
-            
-            for e in display:
-                cards.append({
-                    "title": f"📍 {e['asign']}호기 ({e['no']})",
-                    "description": "원하시는 상세 정보를 선택하세요.",
-                    "buttons": [
-                        {"action": "message", "label": "점검", "messageText": f"조회점검_{e['no']}"},
-                        {"action": "message", "label": "보험", "messageText": f"조회보험_{e['no']}"},
-                        {"action": "message", "label": "제원", "messageText": f"정밀검사_조회_{e['no']}"}
-                    ]
-                })
-                
-            if start + 15 < len(elevators):
-                cards.append({
-                    "title": "🚀 다음 리스트",
-                    "description": "다음 호기 목록",
-                    "buttons": [{"action": "message", "label": "다음 보기", "messageText": f"{elv_no} 다음 리스트 {page+1}"}]
-                })
-                
-            return kakao_res([{"carousel": {"type": "basicCard", "items": cards[:10]}}])
-
-        return kakao_simple_text("정확한 키워드나 승강기 번호를 입력해주세요.")
+        # =========================================================
+        # 기본 fallback
+        # =========================================================
+        return kakao_res([{
+            "simpleText": {
+                "text": "❓ 고유번호 7자리를 입력해주세요."
+            }
+        }])
 
     except Exception as e:
-        return kakao_simple_text(f"⚠️ 오류 발생: {str(e)}")
-
-# --- 실행 ---
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+        return kakao_res([{
+            "simpleText": {
+                "text": f"⚠️ 서버 오류: {str(e)}"
+            }
+        }])
