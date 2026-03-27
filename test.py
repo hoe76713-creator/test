@@ -144,11 +144,6 @@ def ask():
         if len(elv_no) == 7:
             info = get_info(elv_no)
 
-            return kakao_res([{"basicCard": {"title": f"🏢 {info['buldNm']}", "description": f"📍 주소: {info['addr']}", "buttons": [
-                {"action": "message", "label": "⚖️ 법적 의무사항 이행 확인", "messageText": f"{elv_no} 법적 의무사항 이행 확인"},
-                {"action": "message", "label": "🔢 호기별 정보 조회", "messageText": f"{elv_no} 호기정보 페이지1"},
-                {"action": "message", "label": "❌ 조회 취소", "messageText": "취소"}]}}])
-
             if "법적 의무사항 이행 확인" in utterance:
                 root = get_api(URLS['SAFE'], {'serviceKey': KEY, 'elevator_no': elv_no})
                 name, end_de = "미등록", "정보없음"
@@ -251,6 +246,14 @@ def ask():
 
             if "최종마무리" in utterance:
                 return kakao_res([{"simpleText": {"text": f"✨ 수고하셨습니다!\n\n건물({info['buldNm']})의 모든 확인을 마쳤습니다. 😊"}}])
+                
+        # =========================================================
+        # 아래 수정 금지
+        # =========================================================
+            return kakao_res([{"basicCard": {"title": f"🏢 {info['buldNm']}", "description": f"📍 주소: {info['addr']}", "buttons": [
+                {"action": "message", "label": "⚖️ 법적 의무사항 이행 확인", "messageText": f"{elv_no} 법적 의무사항 이행 확인"},
+                {"action": "message", "label": "🔢 호기별 정보 조회", "messageText": f"{elv_no} 호기정보 페이지1"},
+                {"action": "message", "label": "❌ 조회 취소", "messageText": "취소"}]}}])
 
         return kakao_res([{"simpleText": {"text": "❓ 고유번호 7자리를 입력해주세요."}}])
     except Exception as e:
