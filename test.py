@@ -390,14 +390,14 @@ def ask():
                     display = items[start:start+15]
                     cards = []
                     for i in range(0, len(display), 3):
-                        btns = [{"action": "message", "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})", "messageText": f"{it.findtext('elevatorNo')} 법정직무조회7_결과"} for it in display[i:i+3]]
+                        btns = [{"action": "message", "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})", "messageText": f"{it.findtext('elevatorNo')} 직무보험"} for it in display[i:i+3]]
                         cards.append({"title": f"🛡️ 보험 확인 ({start+i+1}~)", "description": f"🏢 {info['buldNm']}", "buttons": btns})
 
                      # 다음 페이지가 있을 경우 추가
                     if len(items) > start+15: cards.append({"title": "🚀 다음 리스트", "buttons": [{"action": "message", "label": "➡️ 다음 보기", "messageText": f"{elv_no} 법정직무조회7 페이지{page+1}"}]})
                     return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
 
-            if "법정직무조회7_결과" in utterance:
+            if "직무보험" in utterance:
                 return kakao_res([{"basicCard": {"title": "🛡️ 보험 가입 여부 확인", "description": make_insur_report(elv_no, info), "buttons": [
                     {"action": "message", "label": "🔍 자체점검일지 확인", "messageText": f"{elv_no} 법정직무조회8"}]}}])
                 
@@ -412,20 +412,20 @@ def ask():
                     
                     for i in range(0, len(display), 3):
                         sub_items = display[i:i + 3]
-                        btns = [{"action": "message","label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})","messageText": f"{it.findtext('elevatorNo')} 법정직무조회8_결과"} for it in sub_items]
+                        btns = [{"action": "message","label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})","messageText": f"{it.findtext('elevatorNo')} 직무점검"} for it in sub_items]
                         cards.append({"title": f"📝 점검 확인 ({start + i + 1}~)","description": f"🏢 {info['buldNm']}","buttons": btns})
                         
                     # 다음 페이지가 있을 경우 추가
-                    if len(items) > start + 15:cards.append({"title": "🚀 다음 리스트","buttons": [{"action": "message","label": "➡️ 다음 보기","messageText": f"{elv_no} 법정직무조회9 페이지{page + 1}"}]})
+                    if len(items) > start + 15:cards.append({"title": "🚀 다음 리스트","buttons": [{"action": "message","label": "➡️ 다음 보기","messageText": f"{elv_no} 법정직무조회8 페이지{page + 1}"}]})
                     return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
 
-            if "법정직무조회8_결과" in utterance:
+            if "직무점검" in utterance:
                 selected_info = get_info(elv_no)
                 return kakao_res([{"basicCard": {"title": "🔍 자체점검일지 조회","description": make_check_report(elv_no, selected_info),"buttons": [
                     {"action": "message", "label": "🏁 모든 확인 완료", "messageText": f"{elv_no} 최종마무리"}]}}])
                 
             if "최종마무리" in utterance:
-                return kakao_res([{"simpleText": {"text": f"✨ 수고하셨습니다!\n\n건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍/n/n 지금까지의 체크 리스트는 참고하시어 주기적으로 확인 하시기 바랍니다. 😄"}}])
+                return kakao_res([{"simpleText": {"text": f"✨ 수고하셨습니다!\n\n건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍\n\n 지금까지의 체크 리스트는 참고하시어 주기적으로 확인 하시기 바랍니다. 😄"}}])
                 
         # =========================================================
         # 아래 수정 금지
