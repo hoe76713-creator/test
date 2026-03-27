@@ -143,8 +143,12 @@ def ask():
         # =========================================================
         if len(elv_no) == 7:
             info = get_info(elv_no)
-            
-            if utterance == elv_no:
+            cmd = utterance.replace(elv_no, "").strip()
+
+            # =====================================================
+            # 👤 안전관리자 현황 조회
+            # =====================================================
+            if "관리자" in cmd:
                 root = get_api(URLS['SAFE'], {'serviceKey': KEY, 'elevator_no': elv_no})
                 name, end_de = "미등록", "정보없음"
                 if root is not None:
@@ -153,12 +157,134 @@ def ask():
                         m = items[-1]
                         name = m.findtext('safeMngrNm') or m.findtext('shuttleMngrNm') or "성함미상"
                         end_de = format_dt(m.findtext('valdEndDt') or m.findtext('eduEndDe'))
-                desc = (f"✅ [안전관리자 선임 확인]\n건물명: {info['buldNm']}\n👤 성함: {name}\n🎓 만료: {end_de}")
-                return kakao_res([{"basicCard": {"title": "⚖️ 법적 의무사항 이행 확인", "description": desc, "buttons": [
-                    {"action": "message", "label": "📅 선임 기한 안내", "messageText": "언제까지 선임해야 하나요"},
-                    {"action": "message", "label": "🎓 교육 이수 기준", "messageText": "교육은 언제까지 받나요"},
-                    {"action": "message", "label": "📋 일상 점검 가이드", "messageText": f"{elv_no} 법정직무조회1"}]}}])
+                desc = (f"✅ [안전관리자 선임 확인]\n"
+                        f"건물명: {info['buldNm']}\n"
+                        f"👤 성함: {name}\n"
+                        f"🎓 만료: {end_de}")
+                
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "⚖️ 법적 의무사항 이행 확인",
+                        "description": desc,
+                        "buttons": [
+                            {"action": "message", "label": "📅 선임 기한 안내", "messageText": f"{elv_no} 선임기한"},
+                            {"action": "message", "label": "🎓 교육 이수 기준", "messageText": f"{elv_no} 교육기준"},
+                            {"action": "message", "label": "📋 일상 점검 가이드", "messageText": f"{elv_no} 법정직무조회1"}
+                        ]
+                    }
+                }])
+                
+            # =====================================================
+            # 🛡️ 보험 및 점검 의무
+            # =====================================================
+            if "보험및점검" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛡️ 보험 및 점검 의무",
+                        "description": "확인할 항목을 선택해주세요.",
+                        "buttons": [
+                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험 가입 확인"},
+                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체 점검 확인"}
+                        ]
+                    }
+                }])
+                
+            # =====================================================
+            # 🛡️ 보험 질문 → 리스트
+            # =====================================================
+            if "보험 가입 확인" in cmd:
+                root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
+                    
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = int(re.search(r'페이지(\d+)', cmd).group(1)) if "페이지" in cmd else 1
+                        
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                        
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        btns = [{
+                            "action": "message",
+                            "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})",
+                            "messageText": f"{it.findtext('elevatorNo')} 보험결과"
+                        } for it in display[i:i+3]]
+                            
+                        cards.append({
+                            "title": f"🛡️ 보험 확인 ({start+i+1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns
+                        })
+                            
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 보기",
+                                "messageText": f"{elv_no} 보험질문 페이지{page+1}"
+                            }]
+                        })
+                            
+                    return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])    
+                    
+            if "가입 결과" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛡️ 보험 가입 여부 확인",
+                        "description": make_insur_report(elv_no, info)
+                    }
+                }])
+                    
+            # =====================================================
+            # 🔍 점검 질문 → 리스트
+            # =====================================================
+                
+            if "자체 점검 확인" in cmd:
+                root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
+                    
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = int(re.search(r'페이지(\d+)', cmd).group(1)) if "페이지" in cmd else 1
+                        
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                        
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        btns = [{
+                            "action": "message",
+                            "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})",
+                            "messageText": f"{it.findtext('elevatorNo')} 점검결과"
+                        } for it in display[i:i+3]]
+                        
+                        cards.append({
+                            "title": f"🔍 점검 확인 ({start+i+1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns
+                        })
+                        
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 보기",
+                                "messageText": f"{elv_no} 점검질문 페이지{page+1}"
+                            }]
+                        })
+                        
+                    return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
+                
+            if "점검 결과" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🔍 자체점검일지 조회",
+                        "description": make_check_report(elv_no, info)  # 🔥 수정됨 (보험 → 점검)
+                    }
+                }])
 
+            
         # =========================================================
         # 호기조회 (고유번호 뒤에 무조건, 삭제 금지)
         # =========================================================
@@ -251,9 +377,9 @@ def ask():
         # 아래 수정 금지
         # =========================================================
             return kakao_res([{"basicCard": {"title": f"🏢 {info['buldNm']}", "description": f"📍 주소: {info['addr']}", "buttons": [
-                {"action": "message", "label": "🏢 우리 건물 정보 조회", "messageText": f"{elv_no} 🏢 우리 건물 정보 조회"},
-                {"action": "message", "label": "📅 정밀검사 완전정복", "messageText": f"{elv_no} 📅 정밀검사 완전정복"},
-                {"action": "message", "label": "❌ 조회 취소", "messageText": "취소"}]}}])
+                {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 👤 안전관리자 현황 조회"},
+                {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 🛡️ 보험 및 점검 의무"},
+                {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 🚨 사고/고장 신고조회"},
 
         return kakao_res([{"simpleText": {"text": "❓ 고유번호 7자리를 입력해주세요."}}])
     except Exception as e:
