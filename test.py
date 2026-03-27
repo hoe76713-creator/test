@@ -183,8 +183,8 @@ def ask():
                         "title": "🛡️ 보험 및 점검 의무",
                         "description": "확인할 항목을 선택해주세요.",
                         "buttons": [
-                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험가입확인"},
-                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체점검확인"}
+                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험 가입 확인"},
+                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체 점검 확인"}
                         ]
                     }
                 }])
@@ -192,7 +192,7 @@ def ask():
             # =====================================================
             # 🛡️ 보험 질문 → 리스트
             # =====================================================
-            if "보험가입" in cmd:
+            if "보험가입" in utterance or "보험확인" in utterance:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
                 if root is not None:
