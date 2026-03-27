@@ -188,6 +188,7 @@ def ask():
                         ]
                     }
                 }])
+                            {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 🛡️ 보험 및 점검 의무"},
                 
             # =====================================================
             # 🛡️ 보험 질문 → 리스트
@@ -226,7 +227,7 @@ def ask():
                             }]
                         })
                             
-                    return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])    
+                return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])    
                     
             if "가입 결과" in cmd:
                 return kakao_res([{
@@ -274,7 +275,7 @@ def ask():
                             }]
                         })
                         
-                    return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
+                return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
                 
             if "점검 결과" in cmd:
                 return kakao_res([{
