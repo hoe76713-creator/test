@@ -167,8 +167,8 @@ def ask():
                         "title": "⚖️ 법적 의무사항 이행 확인",
                         "description": desc,
                         "buttons": [
-                            {"action": "message", "label": "📅 선임 기한 안내", "messageText": f"{elv_no} 선임기한"},
-                            {"action": "message", "label": "🎓 교육 이수 기준", "messageText": f"{elv_no} 교육기준"},
+                            {"action": "message", "label": "📅 선임 기한 안내", "messageText": f"언제까지 선임해야 하나요"},
+                            {"action": "message", "label": "🎓 교육 이수 기준", "messageText": f"교육은 언제까지 받나요"},
                             {"action": "message", "label": "📋 일상 점검 가이드", "messageText": f"{elv_no} 법정직무조회1"}
                         ]
                     }
@@ -192,7 +192,7 @@ def ask():
             # =====================================================
             # 🛡️ 보험 질문 → 리스트
             # =====================================================
-            if "보험 가입 확인" in cmd:
+            if "보험가입확인" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
                 if root is not None:
@@ -240,7 +240,7 @@ def ask():
             # 🔍 점검 질문 → 리스트
             # =====================================================
                 
-            if "자체 점검 확인" in cmd:
+            if "자체점검확인" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
                 if root is not None:
