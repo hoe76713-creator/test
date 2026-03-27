@@ -148,7 +148,7 @@ def ask():
             # =====================================================
             # 👤 안전관리자 현황 조회
             # =====================================================
-            if "관리자" in cmd:
+            if "안전관리자" in cmd:
                 root = get_api(URLS['SAFE'], {'serviceKey': KEY, 'elevator_no': elv_no})
                 name, end_de = "미등록", "정보없음"
                 if root is not None:
@@ -379,7 +379,7 @@ def ask():
             return kakao_res([{"basicCard": {"title": f"🏢 {info['buldNm']}", "description": f"📍 주소: {info['addr']}", "buttons": [
                 {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 👤 안전관리자 현황 조회"},
                 {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 🛡️ 보험 및 점검 의무"},
-                {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 🚨 사고/고장 신고조회"},
+                {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 🚨 사고/고장 신고조회"}]}}])
 
         return kakao_res([{"simpleText": {"text": "❓ 고유번호 7자리를 입력해주세요."}}])
     except Exception as e:
