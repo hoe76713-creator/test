@@ -143,8 +143,8 @@ def ask():
         # =========================================================
         if len(elv_no) == 7:
             info = get_info(elv_no)
-
-           if utterance == elv_no:
+            
+            if utterance == elv_no:
                 root = get_api(URLS['SAFE'], {'serviceKey': KEY, 'elevator_no': elv_no})
                 name, end_de = "미등록", "정보없음"
                 if root is not None:
