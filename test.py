@@ -185,7 +185,7 @@ def ask():
                         "buttons": [
                             {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험질문"},
                             {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 점검질문"},
-                            {"action": "message", "label": "↪️ 처음으로 돌아가기", "messageText": f"{elv_no} 점검질문"}????????????
+                            {"action": "message", "label": "↪️ 처음으로 돌아가기", "messageText": f"{elv_no} f"{elv_no}"}
                         ]
                     }
                 }])
