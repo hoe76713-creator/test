@@ -289,11 +289,11 @@ def ask():
                         btns = [{
                             "action": "message",
                             "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})",
-                            "messageText": f"{it.findtext('elevatorNo')} 점검결과"
+                            "messageText": f"{it.findtext('elevatorNo')} 결과확인"
                         } for it in display[i:i+3]]
                         
                         cards.append({
-                            "title": f"🔍 점검 확인 ({start+i+1}~)",
+                            "title": f"📝 점검 확인 ({start+i+1}~)",
                             "description": f"🏢 {info['buldNm']}",
                             "buttons": btns
                         })
@@ -304,7 +304,7 @@ def ask():
                             "buttons": [{
                                 "action": "message",
                                 "label": "➡️ 다음 보기",
-                                "messageText": f"{elv_no} 자체점검 페이지{page+1}" # 점검질문 -> 자체점검으로 통일
+                                "messageText": f"{elv_no} 자체점검 페이지{page+1}"
                             }]
                         })
                         
