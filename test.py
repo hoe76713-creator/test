@@ -175,24 +175,41 @@ def ask():
                 }])
                 
             # =====================================================
-            # 🛡️ 보험 및 점검 의무
+            # 🛡️ 보험 및 점검 의무 처음 화면
             # =====================================================
             if "보험및점검" in cmd:
                 return kakao_res([{
                     "basicCard": {
                         "title": "🛡️ 보험 및 점검 의무",
-                        "description": "확인할 항목을 선택해주세요.",
+                        "description": "궁굼한게 무엇인가",
                         "buttons": [
-                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험가입확인"},
-                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체점검확인"}
+                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험질문"},
+                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 점검질문"},
+                            {"action": "message", "label": "↪️ 처음으로 돌아가기", "messageText": f"{elv_no} 점검질문"}????????????
                         ]
                     }
                 }])
-                                
-            # =====================================================
-            # 🛡️ 보험 질문 → 리스트
-            # =====================================================
-            # utterance 대신 cmd 사용
+
+            # =========================================================
+            # ❓ 보험 가입은 필수인가요
+            # =========================================================
+
+            if "보험질문" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "❓ 보험 가입은 필수인가요",
+                        "description": "가입 설명은 여기에 입력",
+                        "buttons": [
+                            {"action": "message", "label": "🔍 보험 가입 조회", "messageText": f"{elv_no} 보험가입확인"},
+                            {"action": "message", "label": "↪️ 돌아가기", "messageText": f"{elv_no} 보험및점검"}
+                        ]
+                    }
+                }])
+
+            # =========================================================
+            # 🔍 보험 가입 조회
+            # =========================================================
+   
             if "보험가입" in cmd or "보험확인" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
@@ -236,11 +253,27 @@ def ask():
                         "description": make_insur_report(elv_no, info)
                     }
                 }])
-                    
+                                    
             # =====================================================
-            # 🔍 점검 질문 → 리스트
+            # 🛠️ 자체점검은 필수인가요
+            # =====================================================            
+            
+            if "점검질문" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛠️ 자체점검은 필수인가요",
+                        "description": "점검 설명은 여기에 입력",
+                        "buttons": [
+                            {"action": "message", "label": "📝 점검 일지 조회", "messageText": f"{elv_no} 자체점검확인"},
+                            {"action": "message", "label": "↪️ 돌아가기", "messageText": f"{elv_no} 보험및점검"}
+                        ]
+                    }
+                }])
+                                    
             # =====================================================
-            # 자체점검 버튼 클릭과 다음 페이지 넘기기를 모두 잡기 위해 cmd 사용
+            # 📝 점검 질문 → 리스트
+            # =====================================================            
+
             if "자체점검" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
