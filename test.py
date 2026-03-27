@@ -183,8 +183,23 @@ def ask():
                         "title": "🛡️ 보험 및 점검 의무",
                         "description": "확인할 항목을 선택해주세요.",
                         "buttons": [
-                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험 가입 확인"},
-                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체 점검 확인"}
+                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험가입확인"},
+                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체점검확인"}
+                        ]
+                    }
+                }])
+                
+# =====================================================
+            # 🛡️ 보험 및 점검 의무
+            # =====================================================
+            if "보험및점검" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛡️ 보험 및 점검 의무",
+                        "description": "확인할 항목을 선택해주세요.",
+                        "buttons": [
+                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험가입확인"},
+                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 자체점검확인"}
                         ]
                     }
                 }])
@@ -192,7 +207,8 @@ def ask():
             # =====================================================
             # 🛡️ 보험 질문 → 리스트
             # =====================================================
-            if "보험가입" in utterance or "보험확인" in utterance:
+            # utterance 대신 cmd 사용
+            if "보험가입" in cmd or "보험확인" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
                 if root is not None:
@@ -222,13 +238,13 @@ def ask():
                             "buttons": [{
                                 "action": "message",
                                 "label": "➡️ 다음 보기",
-                                "messageText": f"{elv_no} 보험질문 페이지{page+1}"
+                                "messageText": f"{elv_no} 보험확인 페이지{page+1}" # '보험확인'으로 통일
                             }]
                         })
                             
-                return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])    
+                return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])   
                     
-            if "가입 결과" in cmd:
+            if "보험결과" in cmd:
                 return kakao_res([{
                     "basicCard": {
                         "title": "🛡️ 보험 가입 여부 확인",
@@ -239,7 +255,7 @@ def ask():
             # =====================================================
             # 🔍 점검 질문 → 리스트
             # =====================================================
-                
+            # 자체점검 버튼 클릭과 다음 페이지 넘기기를 모두 잡기 위해 cmd 사용
             if "자체점검" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
@@ -270,21 +286,20 @@ def ask():
                             "buttons": [{
                                 "action": "message",
                                 "label": "➡️ 다음 보기",
-                                "messageText": f"{elv_no} 점검질문 페이지{page+1}"
+                                "messageText": f"{elv_no} 자체점검 페이지{page+1}" # 점검질문 -> 자체점검으로 통일
                             }]
                         })
                         
                 return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
                 
-            if "점검 결과" in cmd:
+            if "점검결과" in cmd:
                 return kakao_res([{
                     "basicCard": {
                         "title": "🔍 자체점검일지 조회",
-                        "description": make_check_report(elv_no, info)  # 🔥 수정됨 (보험 → 점검)
+                        "description": make_check_report(elv_no, info) 
                     }
                 }])
-
-            
+                
         # =========================================================
         # 호기조회 (고유번호 뒤에 무조건, 삭제 금지)
         # =========================================================
