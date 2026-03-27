@@ -144,7 +144,7 @@ def ask():
         if len(elv_no) == 7:
             info = get_info(elv_no)
 
-            if "법적 의무사항 이행 확인" in utterance:
+            if "법적의무사항이행확인" in utterance:
                 root = get_api(URLS['SAFE'], {'serviceKey': KEY, 'elevator_no': elv_no})
                 name, end_de = "미등록", "정보없음"
                 if root is not None:
@@ -251,7 +251,7 @@ def ask():
         # 아래 수정 금지
         # =========================================================
             return kakao_res([{"basicCard": {"title": f"🏢 {info['buldNm']}", "description": f"📍 주소: {info['addr']}", "buttons": [
-                {"action": "message", "label": "⚖️ 법적 의무사항 이행 확인", "messageText": f"{elv_no} 법적 의무사항 이행 확인"},
+                {"action": "message", "label": "⚖️ 법적 의무사항 이행 확인", "messageText": f"{elv_no} 법적의무사항이행확인"},
                 {"action": "message", "label": "🔢 호기별 정보 조회", "messageText": f"{elv_no} 호기정보 페이지1"},
                 {"action": "message", "label": "❌ 조회 취소", "messageText": "취소"}]}}])
 
