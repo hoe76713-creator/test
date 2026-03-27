@@ -277,7 +277,7 @@ def ask():
                         
                 return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
                 
-            if "점검결과" in cmd:
+            if "결과확인" in cmd:
                 return kakao_res([{
                     "basicCard": {
                         "title": "🔍 자체점검일지 조회",
