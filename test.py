@@ -7,6 +7,9 @@ import os
 
 app = Flask(__name__)
 
+# --- 가상 방(상태) 저장을 위한 메모리 딕셔너리 ---
+user_state = {}
+
 # API 설정
 KEY = 'e3cee5ce5cec33048ec4e796503f3e3e2c17cf9bacae0079b46590af0d3ca1dd'
 URLS = {
@@ -73,15 +76,149 @@ def make_insur_report(no, info):
         return (f"🛡️ [보험 가입 확인]\n📍 {info['asign']}호기 ({no})\n━━━━━━━━━━━━━━\n🏢 보험사: {it.findtext('companyNm')}\n⏰ 만료일: {format_dt(it.findtext('contEnDe'))}")
     return f"⚠️ {no} 보험 정보 없음"
 
+def make_precision_report(no, info):
+    if not info or info['addr'] == "정보없음": 
+        return "⚠️ 건물 정보 조회 실패"
+
+    addr_short = " ".join(info['addr'].split()[:3])
+    root = get_api(URLS['SPEC'], {'serviceKey': KEY, 'elevator_no': no, 'buld_address': addr_short})
+    
+    if root is not None and root.find('.//item') is not None:
+        it = root.find('.//item')
+        install_date_str = it.findtext('installationDe')
+        
+        if install_date_str and len(install_date_str) >= 4:
+            install_year = int(install_date_str[:4])
+            year_15 = install_year + 15
+            year_18 = install_year + 18
+            year_21 = install_year + 21
+            
+            report = (
+                f"📅 [정밀검사 대상 확인]\n"
+                f"🏗️ 최초 설치일: {format_dt(install_date_str)}\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"🔍 정밀검사 예정 주기:\n"
+                f"1️⃣ 1차(15년): {year_15}년\n"
+                f"2️⃣ 2차(18년): {year_18}년\n"
+                f"3️⃣ 3차(21년): {year_21}년"
+            )
+            return report
+            
+    return "⚠️ 설치일 정보를 찾을 수 없어 계산이 불가능합니다."
+
+
 @app.route('/ask', methods=['POST'])
 def ask():
     try:
+        kst = datetime.timezone(datetime.timedelta(hours=9))
+        current_date = datetime.datetime.now(kst).strftime("%Y-%m-%d")
+        
         content = request.get_json()
+        user_id = content['userRequest']['user']['id']
         raw_msg = content['userRequest']['utterance']
+
         utterance = raw_msg.strip().replace(" ", "")
         all_digits = re.findall(r'\d+', raw_msg)
         elv_no = all_digits[0][:7] if all_digits else ""
 
+        # =========================================================
+        # 0. '방(메뉴)' 입장 처리 및 분기 (수정하신 로직 완벽 반영)
+        # =========================================================
+        if "우리건물정보조회" in utterance:
+            user_state[user_id] = "건물관리"
+            return kakao_res([{
+                "simpleText": {
+                    "text": "🏢 [건물관리 모드]\n조회하실 건물 고유번호 7자리를 입력해주세요."
+                }
+            }])
+
+        # 📅 정밀검사완전정복 버튼을 누르면 먼저 안내 카드 띄우기
+        if "정밀검사완전정복" in utterance:
+            return kakao_res([{
+                "basicCard": {
+                    "title": "📅 정밀검사 완전정복",
+                    "description": "승강기 설치 후 15년이 경과하면 정밀검사를 받아야 합니다. 설치 연도를 알고 계신가요?",
+                    "buttons": [
+                        {"action": "message", "label": "🔢 연도로 계산하기", "messageText": "연도계산"},
+                        {"action": "message", "label": "❓ 설치연도를 몰라요", "messageText": "연도질문"}
+                    ]
+                }
+            }])
+            
+        # =========================================================
+        # ❓ "설치연도를 몰라요(연도질문)"를 눌렀을 때 비로소 방에 입장
+        # =========================================================
+
+        if "연도질문" in utterance:
+            user_state[user_id] = "정밀검사" 
+            return kakao_res([{
+                "simpleText": {
+                    "text": "📅 [정밀검사 모드]\n정밀검사 주기를 확인할 건물 고유번호 7자리를 입력해주세요."
+                }
+            }])
+            
+        # =========================================================
+        # 🔢 "연도로 계산하기"를 눌렀을 때 비로소 방에 입장
+        # =========================================================
+        # 임시: 연도계산 버튼을 눌렀을 때의 응답 (이후 개발을 위해 비워둠)
+        if "연도계산" in utterance:
+            return kakao_res([{
+                "simpleText": {
+                    "text": "🔢 설치 연도(4자리)를 입력해주세요. (예: 2010)"
+                }
+            }])
+
+        # =========================================================
+        # 1. 7자리 숫자 입력 시 현재 '방' 확인 후 가공
+        # =========================================================
+        if utterance.isdigit() and len(utterance) == 7:
+            current_room = user_state.get(user_id)
+            
+            if current_room == "건물관리":
+                utterance = f"건물관리_{utterance}"
+            elif current_room == "정밀검사":
+                utterance = f"정밀검사_{utterance}"
+            else:
+                return kakao_res([{
+                    "simpleText": {
+                        "text": "❓ 현재 선택된 메뉴가 없습니다. 먼저 메뉴를 선택해주세요."
+                    }
+                }])
+
+        # 모든 숫자 추출
+        all_digits = re.findall(r'\d+', utterance)
+        elv_no = all_digits[0][:7] if all_digits else ""
+
+        # =========================================================
+        # 2-A. "건물관리_1234567"
+        # =========================================================
+        if utterance.startswith("건물관리_") and len(elv_no) == 7:
+            info = get_info(elv_no)
+            return kakao_res([{
+                "basicCard": {
+                    "title": f"🏢 {info['buldNm']}",
+                    "description": f"📍 주소: {info['addr']}\n📅 조회일: {current_date}",
+                    "buttons": [
+                        {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 안전관리자"},
+                        {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
+                        {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
+                    ]
+                }
+            }])
+
+        # =========================================================
+        # 2-B. "정밀검사_1234567"
+        # =========================================================
+        if utterance.startswith("정밀검사_") and len(elv_no) == 7:
+            info = get_info(elv_no)
+            result_text = make_precision_report(elv_no, info)
+            return kakao_res([{
+                "simpleText": {
+                    "text": result_text
+                }
+            }])
+        
+            
         # =========================================================
         # 자격요건 진단
         # =========================================================
