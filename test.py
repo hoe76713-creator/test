@@ -175,17 +175,16 @@ def ask():
             current_room = user_state.get(user_id)
             
             if current_room == "건물관리":
-                utterance = f"건물관리_{utterance}"
+                # 바로 건물관리 로직으로 점프
+                return process_building_info(utterance) 
+                
             elif current_room == "정밀검사":
-                utterance = f"정밀검사_{utterance}"
+                # 바로 정밀검사 로직으로 점프
+                return process_inspection_info(utterance)
             else:
-                return kakao_res([{
-                    "simpleText": {
-                        "text": "❓ 현재 선택된 메뉴가 없습니다. 먼저 메뉴를 선택해주세요."
-                    }
-                }])
-
-        # 모든 숫자 추출
+                # 이때만 "어떤 걸 도와드릴까요?"라고 버튼을 보여줌
+                return ask_user_intent(utterance)
+                
         all_digits = re.findall(r'\d+', utterance)
         elv_no = all_digits[0][:7] if all_digits else ""
 
