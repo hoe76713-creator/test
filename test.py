@@ -177,20 +177,18 @@ def ask():
             
             if current_room == "건물관리":
                 info = get_info(elv_no)
-            user_state[user_id] = None # 처리 후 상태 초기화
-            
-            return kakao_res([{
-                "basicCard": {
-                    "title": f"🏢 {info['buldNm']}",
-                    "description": f"📍 주소: {info['addr']}\n📅 조회일: {current_date}",
-                    "buttons": [
-                        {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 안전관리자"},
-                        {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
-                        {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
-                    ]
-                }
-            }])
-                
+                user_state[user_id] = None # 처리 후 상태 초기화
+                return kakao_res([{
+                    "basicCard": {
+                        "title": f"🏢 {info['buldNm']}",
+                        "description": f"📍 주소: {info['addr']}\n📅 조회일: {current_date}",
+                        "buttons": [
+                            {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 안전관리자"},
+                            {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
+                            {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
+                        ]
+                    }])
+                    
             elif current_room == "정밀검사":
                 info = get_info(elv_no)
                 result_text = make_precision_report(elv_no, info) # 이미 만드신 함수 호출
