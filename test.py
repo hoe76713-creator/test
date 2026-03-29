@@ -49,7 +49,7 @@ def make_spec_report(no, info):
     root = get_api(URLS['SPEC'], {'serviceKey': KEY, 'elevator_no': no, 'buld_address': addr_short})
     if root is not None and root.find('.//item') is not None:
         it = root.find('.//item')
-        return (f"⚙️ [호기별 제원표]\n📍 호기: {info['asign']}호기\n━━━━━━━━━━━━━━\n🏷️ 모델명: {it.findtext('elvtrModel') or '-'}\n⚡ 정격속도: {it.findtext('ratedSpeed') or '-'}m/s\n🏗️ 설치일: {format_dt(it.findtext('installationDe'))}\n⚖️ 하중: {it.findtext('liveLoad')}kg\n👨‍👩‍👧 정원: {it.findtext('ratedCap')}명\n↕️ 층수: {it.findtext('shuttleFloorCnt')}층")
+        return (f"⚙️ [호기별 제원표]\n━━━━━━━━━━━━━━\n🏷️ 모델명: {it.findtext('elvtrModel') or '-'}\n⚡ 정격속도: {it.findtext('ratedSpeed') or '-'}m/s\n🏗️ 최초 설치일: {format_dt(it.findtext('installationDe'))}\n⚖️ 하중: {it.findtext('liveLoad')}kg\n👨‍👩‍👧 정원: {it.findtext('ratedCap')}명\n↕️ 층수: {it.findtext('shuttleFloorCnt')}층")
     return "⚠️ 제원 조회 실패"
 
 def make_check_report(no, info):
@@ -367,7 +367,7 @@ def ask():
                     cards = []
                     for i in range(0, len(display), 3):
                         sub = display[i:i+3]
-                        btns = [{"action": "message", "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})", "messageText": f"{it.findtext('elevatorNo')} 단순상세조회"} for it in sub]
+                        btns = [{"action": "message", "label": f"{(it.findtext('installationPlace') or '-').strip()}({it.findtext('elevatorNo')})", "messageText": f"{it.findtext('elevatorNo')} 조회제원"} for it in sub]
                         cards.append({"title": f"🔢 리스트 ({start+i+1}~)", "description": f"🏢 {info['buldNm']}", "buttons": btns})
                     if len(items) > start+15: cards.append({"title": "🚀 다음 리스트", "buttons": [{"action": "message", "label": "➡️ 다음 15개 보기", "messageText": f"{elv_no} 호기정보 페이지{page+1}"}]})
                     return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
