@@ -7,9 +7,6 @@ import os
 
 app = Flask(__name__)
 
-# --- 가상 방(상태) 저장을 위한 메모리 딕셔너리 ---
-user_state = {}
-
 # API 설정
 KEY = 'e3cee5ce5cec33048ec4e796503f3e3e2c17cf9bacae0079b46590af0d3ca1dd'
 URLS = {
@@ -76,150 +73,51 @@ def make_insur_report(no, info):
         return (f"🛡️ [보험 가입 확인]\n📍 {info['asign']}호기 ({no})\n━━━━━━━━━━━━━━\n🏢 보험사: {it.findtext('companyNm')}\n⏰ 만료일: {format_dt(it.findtext('contEnDe'))}")
     return f"⚠️ {no} 보험 정보 없음"
 
-def make_precision_report(no, info):
-    if not info or info['addr'] == "정보없음": 
-        return "⚠️ 건물 정보 조회 실패"
-
-    addr_short = " ".join(info['addr'].split()[:3])
-    root = get_api(URLS['SPEC'], {'serviceKey': KEY, 'elevator_no': no, 'buld_address': addr_short})
-    
-    if root is not None and root.find('.//item') is not None:
-        it = root.find('.//item')
-        install_date_str = it.findtext('installationDe')
-        
-        if install_date_str and len(install_date_str) >= 4:
-            install_year = int(install_date_str[:4])
-            year_15 = install_year + 15
-            year_18 = install_year + 18
-            year_21 = install_year + 21
-            
-            report = (
-                f"📅 [정밀검사 대상 확인]\n"
-                f"🏗️ 최초 설치일: {format_dt(install_date_str)}\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"🔍 정밀검사 예정 주기:\n"
-                f"1️⃣ 1차(15년): {year_15}년\n"
-                f"2️⃣ 2차(18년): {year_18}년\n"
-                f"3️⃣ 3차(21년): {year_21}년"
-            )
-            return report
-            
-    return "⚠️ 설치일 정보를 찾을 수 없어 계산이 불가능합니다."
-
-
 @app.route('/ask', methods=['POST'])
 def ask():
     try:
-        kst = datetime.timezone(datetime.timedelta(hours=9))
-        current_date = datetime.datetime.now(kst).strftime("%Y-%m-%d")
-        
         content = request.get_json()
-        user_id = content['userRequest']['user']['id']
         raw_msg = content['userRequest']['utterance']
-
         utterance = raw_msg.strip().replace(" ", "")
         all_digits = re.findall(r'\d+', raw_msg)
         elv_no = all_digits[0][:7] if all_digits else ""
 
         # =========================================================
-        # 0. '방(메뉴)' 입장 처리 및 분기 (수정하신 로직 완벽 반영)
+        # 📅 [신규 추가] 정밀검사 주기 조회 로직
         # =========================================================
-        if "우리건물정보조회" in utterance:
-            user_state[user_id] = "건물관리"
-            return kakao_res([{
-                "simpleText": {
-                    "text": "🏢 [건물관리 모드]\n조회하실 건물 고유번호 7자리를 입력해주세요."
-                }
-            }])
-
-        # 📅 정밀검사완전정복 버튼을 누르면 먼저 안내 카드 띄우기
-        if "정밀검사완전정복" in utterance:
-            return kakao_res([{
-                "basicCard": {
-                    "title": "📅 정밀검사 완전정복",
-                    "description": "승강기 설치 후 15년이 경과하면 정밀검사를 받아야 합니다. 설치 연도를 알고 계신가요?",
-                    "buttons": [
-                        {"action": "message", "label": "🔢 연도로 계산하기", "messageText": "연도계산"},
-                        {"action": "message", "label": "❓ 설치연도를 몰라요", "messageText": "연도질문"}
-                    ]
-                }
-            }])
+        
+        # 1. '연도로 계산' 버튼을 눌렀을 때 안내
+        if "연도로계산" in utterance or "연도계산" in utterance:
+            return kakao_res([{"simpleText": {"text": "🔢 승강기 설치 연도 4자리를 입력해주세요. (예: 2010)"}}])
             
-        # =========================================================
-        # ❓ "설치연도를 몰라요(연도질문)"를 눌렀을 때 비로소 방에 입장
-        # =========================================================
-
-        if "연도질문" in utterance:
-            user_state[user_id] = "정밀검사" 
-            return kakao_res([{
-                "simpleText": {
-                    "text": "📅 [정밀검사 모드]\n정밀검사 주기를 확인할 건물 고유번호 7자리를 입력해주세요."
-                }
-            }])
+        # 2. 4자리 숫자(설치 연도)를 입력했을 때 자동으로 주기 계산
+        if utterance.isdigit() and len(utterance) == 4:
+            install_year = int(utterance)
+            year_15 = install_year + 15
+            year_18 = install_year + 18
+            year_21 = install_year + 21
             
-        # =========================================================
-        # 🔢 "연도로 계산하기"를 눌렀을 때 비로소 방에 입장
-        # =========================================================
-        # 임시: 연도계산 버튼을 눌렀을 때의 응답 (이후 개발을 위해 비워둠)
-        if "연도계산" in utterance:
-            return kakao_res([{
-                "simpleText": {
-                    "text": "🔢 설치 연도(4자리)를 입력해주세요. (예: 2010)"
-                }
-            }])
+            report = (
+                f"📅 [정밀검사 대상 기간 확인]\n"
+                f"🏗️ 기준 설치 연도: {install_year}년\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"🔍 정밀검사 예정 주기\n"
+                f"1️⃣ 1차 (15년 경과): {year_15}년\n"
+                f"2️⃣ 2차 (18년 경과): {year_18}년\n"
+                f"3️⃣ 3차 (21년 경과): {year_21}년\n\n"
+                f"💡 (참고) 정확한 검사 대상일은 호기별 제원표의 상세 '설치일' 기준으로 산정됩니다."
+            )
+            return kakao_res([{"simpleText": {"text": report}}])
 
-        # =========================================================
-        # 1. 7자리 숫자 입력 시 현재 '방' 확인 후 가공
-        # =========================================================
-        if utterance.isdigit() and len(utterance) == 7:
-            elv_no = utterance
-            current_room = user_state.get(user_id)
-            
-            if current_room == "건물관리":
-                info = get_info(elv_no)
-                user_state[user_id] = None # 처리 후 상태 초기화
-                return kakao_res([{
-                    "basicCard": {
-                        "title": f"🏢 {info['buldNm']}",
-                        "description": f"📍 주소: {info['addr']}\n📅 조회일: {current_date}",
-                        "buttons": [
-                            {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 안전관리자"},
-                            {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
-                            {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
-                        ]
-                    }}])
-                    
-            elif current_room == "정밀검사":
-                info = get_info(elv_no)
-                result_text = make_precision_report(elv_no, info) # 이미 만드신 함수 호출
-                user_state[user_id] = None # 처리 후 상태 초기화   
-                return kakao_res([{"simpleText": {"text": result_text}}])
-                
+        # 3. '설치연도를 몰라요' 버튼을 눌렀을 때 -> 기존 '호기정보'로 강제 연결
+        if "설치연도를몰라요" in utterance or "설치연도" in utterance:
+            if len(elv_no) == 7:
+                # 7자리 고유번호가 있다면, utterance를 변조하여 아래의 '호기정보' 로직을 타게 만듭니다.
+                utterance = f"{elv_no}호기정보"
             else:
-                # 상태값이 없을 때 사용자에게 직접 묻는 카드 (ask_user_intent 역할)
-                return kakao_res([{
-                    "basicCard": {
-                        "title": f"번호 확인: {utterance}",
-                        "description": "입력하신 번호로 어떤 정보를 조회할까요?",
-                        "buttons": [
-                            {
-                                "action": "message", 
-                                "label": "🏢 건물 정보 조회", 
-                                "messageText": f"건물관리_{utterance}"
-                            },
-                            {
-                                "action": "message", 
-                                "label": "📅 정밀검사 주기 조회", 
-                                "messageText": f"정밀검사_{utterance}"
-                            }
-                        ]
-                    }
-                }])
-                
-        # 모든 숫자 추출
-        all_digits = re.findall(r'\d+', utterance)
-        elv_no = all_digits[0][:7] if all_digits else ""
+                return kakao_res([{"simpleText": {"text": "🏢 승강기 고유번호 7자리를 먼저 입력해주세요.\n(입력 후 '호기정보'를 확인하시면 정확한 설치연도를 볼 수 있습니다.)"}}])
 
+        
         # =========================================================
         # 자격요건 진단
         # =========================================================
@@ -459,7 +357,6 @@ def ask():
         # =========================================================
         # 호기조회 (고유번호 뒤에 무조건, 삭제 금지)
         # =========================================================
-
             if "호기정보" in utterance:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                 if root is not None:
