@@ -187,7 +187,7 @@ def ask():
                             {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
                             {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
                         ]
-                    }])
+                    }}])
                     
             elif current_room == "정밀검사":
                 info = get_info(elv_no)
