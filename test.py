@@ -175,16 +175,33 @@ def ask():
             current_room = user_state.get(user_id)
             
             if current_room == "건물관리":
-                # 바로 건물관리 로직으로 점프
-                return process_building_info(utterance) 
+                utterance = f"건물관리_{utterance}"
                 
             elif current_room == "정밀검사":
-                # 바로 정밀검사 로직으로 점프
-                return process_inspection_info(utterance)
-            else:
-                # 이때만 "어떤 걸 도와드릴까요?"라고 버튼을 보여줌
-                return ask_user_intent(utterance)
+                utterance = f"정밀검사_{utterance}"
                 
+            else:
+                # 상태값이 없을 때 사용자에게 직접 묻는 카드 (ask_user_intent 역할)
+                return kakao_res([{
+                    "basicCard": {
+                        "title": f"번호 확인: {utterance}",
+                        "description": "입력하신 번호로 어떤 정보를 조회할까요?",
+                        "buttons": [
+                            {
+                                "action": "message", 
+                                "label": "🏢 건물 정보 조회", 
+                                "messageText": f"건물관리_{utterance}"
+                            },
+                            {
+                                "action": "message", 
+                                "label": "📅 정밀검사 주기 조회", 
+                                "messageText": f"정밀검사_{utterance}"
+                            }
+                        ]
+                    }
+                }])
+                
+        # 모든 숫자 추출
         all_digits = re.findall(r'\d+', utterance)
         elv_no = all_digits[0][:7] if all_digits else ""
 
@@ -193,6 +210,8 @@ def ask():
         # =========================================================
         if utterance.startswith("건물관리_") and len(elv_no) == 7:
             info = get_info(elv_no)
+            user_state[user_id] = None # 처리 후 상태 초기화
+            
             return kakao_res([{
                 "basicCard": {
                     "title": f"🏢 {info['buldNm']}",
@@ -210,14 +229,14 @@ def ask():
         # =========================================================
         if utterance.startswith("정밀검사_") and len(elv_no) == 7:
             info = get_info(elv_no)
-            result_text = make_precision_report(elv_no, info)
+            result_text = make_precision_report(elv_no, info) # 이미 만드신 함수 호출
+            user_state[user_id] = None # 처리 후 상태 초기화
+            
             return kakao_res([{
                 "simpleText": {
                     "text": result_text
                 }
             }])
-        
-            
         # =========================================================
         # 자격요건 진단
         # =========================================================
