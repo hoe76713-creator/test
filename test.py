@@ -172,13 +172,30 @@ def ask():
         # 1. 7자리 숫자 입력 시 현재 '방' 확인 후 가공
         # =========================================================
         if utterance.isdigit() and len(utterance) == 7:
+            elv_no = utterance
             current_room = user_state.get(user_id)
             
             if current_room == "건물관리":
-                utterance = f"건물관리_{utterance}"
+                info = get_info(elv_no)
+            user_state[user_id] = None # 처리 후 상태 초기화
+            
+            return kakao_res([{
+                "basicCard": {
+                    "title": f"🏢 {info['buldNm']}",
+                    "description": f"📍 주소: {info['addr']}\n📅 조회일: {current_date}",
+                    "buttons": [
+                        {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 안전관리자"},
+                        {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
+                        {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
+                    ]
+                }
+            }])
                 
             elif current_room == "정밀검사":
-                utterance = f"정밀검사_{utterance}"
+                info = get_info(elv_no)
+                result_text = make_precision_report(elv_no, info) # 이미 만드신 함수 호출
+                user_state[user_id] = None # 처리 후 상태 초기화   
+                return kakao_res([{"simpleText": {"text": result_text}}])
                 
             else:
                 # 상태값이 없을 때 사용자에게 직접 묻는 카드 (ask_user_intent 역할)
@@ -204,39 +221,6 @@ def ask():
         # 모든 숫자 추출
         all_digits = re.findall(r'\d+', utterance)
         elv_no = all_digits[0][:7] if all_digits else ""
-
-        # =========================================================
-        # 2-A. "건물관리_1234567" (process_building_info 역할)
-        # =========================================================
-        if utterance.startswith("건물관리_") and len(elv_no) == 7:
-            info = get_info(elv_no)
-            user_state[user_id] = None # 처리 후 상태 초기화
-            
-            return kakao_res([{
-                "basicCard": {
-                    "title": f"🏢 {info['buldNm']}",
-                    "description": f"📍 주소: {info['addr']}\n📅 조회일: {current_date}",
-                    "buttons": [
-                        {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 안전관리자"},
-                        {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 보험및점검"},
-                        {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 사고고장"}
-                    ]
-                }
-            }])
-
-        # =========================================================
-        # 2-B. "정밀검사_1234567" (process_inspection_info 역할)
-        # =========================================================
-        if utterance.startswith("정밀검사_") and len(elv_no) == 7:
-            info = get_info(elv_no)
-            result_text = make_precision_report(elv_no, info) # 이미 만드신 함수 호출
-            user_state[user_id] = None # 처리 후 상태 초기화
-            
-            return kakao_res([{
-                "simpleText": {
-                    "text": result_text
-                }
-            }])
 
         # =========================================================
         # 자격요건 진단
