@@ -444,7 +444,8 @@ def ask():
                     {"action": "message", "label": "🏁 모든 확인 완료", "messageText": f"{elv_no} 최종마무리"}]}}])
                 
             if "최종마무리" in utterance:
-                return kakao_res([{"simpleText": {"text": f"✨ 수고하셨습니다!\n\n건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍\n\n 지금까지의 체크 리스트는 참고하시어 주기적으로 확인 하시기 바랍니다. 😄"}}])
+                return kakao_res([{"basicCard": {"title": "✨ 수고하셨습니다!","description": f"건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍\n\n지금까지의 체크 리스트는 참고하시어 주기적으로 확인 하시기 바랍니다. 😄",
+                                                 "buttons": {"action": "message","label": "처음으로 돌아가기","messageText": f"{elv_no}"}]}}])
                 
         # =========================================================
         # 메인 베이스 화면 (아래 수정 금지 구역 - 라벨명만 구조도 반영)
