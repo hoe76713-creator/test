@@ -49,7 +49,7 @@ def make_spec_report(no, info):
     root = get_api(URLS['SPEC'], {'serviceKey': KEY, 'elevator_no': no, 'buld_address': addr_short})
     if root is not None and root.find('.//item') is not None:
         it = root.find('.//item')
-        return (f"⚙️ [호기별 제원표]\n━━━━━━━━━━━━━━\n🏷️ 모델명: {it.findtext('elvtrModel') or '-'}\n⚡ 정격속도: {it.findtext('ratedSpeed') or '-'}m/s\n🏗️ 최초 설치일: {format_dt(it.findtext('installationDe'))}\n⚖️ 하중: {it.findtext('liveLoad')}kg\n👨‍👩‍👧 정원: {it.findtext('ratedCap')}명\n↕️ 층수: {it.findtext('shuttleFloorCnt')}층")
+        return (f"⚙️ [호기별 제원표]\n━━━━━━━━━━━━━━\n🏷️ 모델명: {it.findtext('elvtrModel') or '-'}\n💨 정격속도: {it.findtext('ratedSpeed') or '-'}m/s\n🏗️ 최초 설치일: {format_dt(it.findtext('installationDe'))}\n📦 하중: {it.findtext('liveLoad')}kg\n👨‍👩‍👧 정원: {it.findtext('ratedCap')}명\n↕️ 층수: {it.findtext('shuttleFloorCnt')}층")
     return "⚠️ 제원 조회 실패"
 
 def make_check_report(no, info):
@@ -62,7 +62,7 @@ def make_check_report(no, info):
             it = root.find('.//item')
             last_co = (it.findtext('companyNm') or last_co).strip()
             res_list.append(f"📅 {ym[:4]}년 {ym[4:]}월 점검\n✅ 결과: {it.findtext('selchkResultNm')}\n🛠️ 업체: {last_co}")
-    report = f"🔍 [자체점검일지 내역]\n📍 {info['asign']}호기 ({no})\n━━━━━━━━━━━━━━\n" + ("\n\n".join(res_list) if res_list else "⚠️ 점검 데이터 없음")
+    report = f"🛠️ [자체점검일지 내역]\n━━━━━━━━━━━━━━\n" + ("\n\n".join(res_list) if res_list else "⚠️ 점검 데이터 없음")
     return report
 
 def make_insur_report(no, info):
@@ -70,7 +70,7 @@ def make_insur_report(no, info):
     root = get_api(URLS['INSUR'], {'serviceKey': KEY, 'elevator_no': no, 'cont_ymd': today_ym})
     if root is not None and root.find('.//item') is not None:
         it = root.find('.//item')
-        return (f"🛡️ [보험 가입 확인]\n📍 {info['asign']}호기 ({no})\n━━━━━━━━━━━━━━\n🏢 보험사: {it.findtext('companyNm')}\n⏰ 만료일: {format_dt(it.findtext('contEnDe'))}")
+        return (f"🛡️ [보험 가입 확인]\n━━━━━━━━━━━━━━\n🏢 보험사: {it.findtext('companyNm')}\n⏳ 만료일: {format_dt(it.findtext('contEnDe'))}")
     return f"⚠️ {no} 보험 정보 없음"
 
 @app.route('/ask', methods=['POST'])
@@ -83,14 +83,8 @@ def ask():
         elv_no = all_digits[0][:7] if all_digits else ""
 
         # =========================================================
-        # 📅 [신규 추가] 정밀검사 주기 조회 로직
+        # 4자리 숫자(설치 연도)를 입력했을 때 자동으로 주기 계산
         # =========================================================
-        
-        # 1. '연도로 계산' 버튼을 눌렀을 때 안내
-        if "연도로계산" in utterance or "연도계산" in utterance:
-            return kakao_res([{"simpleText": {"text": "🔢 승강기 설치 연도 4자리를 입력해주세요. (예: 2010)"}}])
-            
-        # 2. 4자리 숫자(설치 연도)를 입력했을 때 자동으로 주기 계산
         if utterance.isdigit() and len(utterance) == 4:
             install_year = int(utterance)
             year_15 = install_year + 15
@@ -109,26 +103,17 @@ def ask():
             )
             return kakao_res([{"simpleText": {"text": report}}])
 
-        # 3. '설치연도를 몰라요' 버튼을 눌렀을 때 -> 기존 '호기정보'로 강제 연결
-        if "설치연도를몰라요" in utterance or "설치연도" in utterance:
-            if len(elv_no) == 7:
-                # 7자리 고유번호가 있다면, utterance를 변조하여 아래의 '호기정보' 로직을 타게 만듭니다.
-                utterance = f"{elv_no}호기정보"
-            else:
-                return kakao_res([{"simpleText": {"text": "🏢 승강기 고유번호 7자리를 먼저 입력해주세요.\n(입력 후 '호기정보'를 확인하시면 정확한 설치연도를 볼 수 있습니다.)"}}])
-
-        
         # =========================================================
-        # 자격요건 진단
+        # 자격요건 진단 (이모지 교체: 🔍 -> 🏅)
         # =========================================================
         if "자격요건" in utterance or "자격확인" in utterance:
             if "진단_" not in utterance and "결과" not in utterance:
-                return kakao_res([{"basicCard": {"title": "🔍 [자격확인] 1단계", "description": "화재 시 대피용으로 지정된\n'피난용 엘리베이터'를 관리하시나요?", "buttons": [
+                return kakao_res([{"basicCard": {"title": "🏅 [자격진단] 1단계", "description": "화재 시 대피용으로 지정된\n'피난용 엘리베이터'를 관리하시나요?", "buttons": [
                     {"action": "message", "label": "예 (피난용 있음)", "messageText": "자격요건_피난용_결과"},
                     {"action": "message", "label": "아니오", "messageText": "자격요건_진단_16층"}]}}])
 
         if "자격요건_진단_16층" in utterance:
-            return kakao_res([{"basicCard": {"title": "🔍 [자격확인] 2단계", "description": "건축물의 '지상층'이 16층 이상인가요?\n(※ 지하층은 제외합니다)", "buttons": [
+            return kakao_res([{"basicCard": {"title": "🏅 [자격진단] 2단계", "description": "건축물의 '지상층'이 16층 이상인가요?\n(※ 지하층은 제외합니다)", "buttons": [
                 {"action": "message", "label": "예 (지상 16층 이상)", "messageText": "자격요건_다중이용_결과"},
                 {"action": "message", "label": "아니오", "messageText": "자격요건_진단_문화집회"}]}}])
 
@@ -143,7 +128,7 @@ def ask():
         for current, quest, next_step in diag_flow:
             if f"자격요건_진단_{current}" in utterance:
                 target_next = "자격요건_일반_결과" if next_step == "일반결정" else f"자격요건_진단_{next_step}"
-                return kakao_res([{"basicCard": {"title": "🔍 용도 확인", "description": quest, "buttons": [
+                return kakao_res([{"basicCard": {"title": "🏅 용도 확인", "description": quest, "buttons": [
                     {"action": "message", "label": "예", "messageText": "자격요건_진단_면적"},
                     {"action": "message", "label": "아니오", "messageText": target_next}]}}])
 
@@ -152,27 +137,27 @@ def ask():
                 {"action": "message", "label": "예 (5,000㎡ 이상)", "messageText": "자격요건_다중이용_결과"},
                 {"action": "message", "label": "아니오 (5,000㎡ 미만)", "messageText": "자격요건_일반_결과"}]}}])
 
-        # --- 수정된 자격요건 결과값 구간 ---
+        # --- 자격요건 결과값 버튼 명칭 구조도 반영 ---
         if "자격요건_피난용_결과" in utterance:
             desc = ("🚨 [피난용 엘리베이터 자격 안내]\n━━━━━━━━━━━━━━\n해당 승강기는 화재 시 인명 구조용으로 사용되므로 **일반 교육만으로는 선임이 불가능**합니다.\n\n"
                     "✅ **필수 자격 요건 (중 하나)**\n1️⃣ 기능사 이상 자격증\n2️⃣ 관련학과 졸업 학위\n3️⃣ 6개월 이상의 실무 경력")
             return kakao_res([{"basicCard": {"title": "피난용 자격 진단 결과", "description": desc, "buttons": [
-                {"action": "webLink", "label": "🏠 안전관리자 선임하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
-                {"action": "webLink", "label": "❓ 신청 방법을 모르겠어요", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
+                {"action": "webLink", "label": "✍️ 선임 신고하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
+                {"action": "webLink", "label": "❓ 선임 신청 방법 안내", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
 
         if "자격요건_다중이용_결과" in utterance:
             desc = ("🏙️ [다중이용 건축물 자격 안내]\n━━━━━━━━━━━━━━\n16층 이상 또는 다중이용시설의 안전관리자는 **기술적인 기본 역량**이 필요합니다.\n\n"
                     "✅ **선임 가능 조건**\n👉 자격증/학위/경력 보유자\n👉 또는 **'행안부 기술 기본교육'** 이수 시 선임 가능합니다.")
             return kakao_res([{"basicCard": {"title": "다중이용 자격 진단 결과", "description": desc, "buttons": [
-                {"action": "webLink", "label": "🏠 안전관리자 선임하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
-                {"action": "webLink", "label": "❓ 신청 방법을 모르겠어요", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
+                {"action": "webLink", "label": "✍️ 선임 신고하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
+                {"action": "webLink", "label": "❓ 선임 신청 방법 안내", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
 
         if "자격요건_일반_결과" in utterance:
             desc = ("🏠 [일반 건축물 자격 안내]\n━━━━━━━━━━━━━━\n해당 건물은 가장 보편적인 자격 요건이 적용됩니다.\n\n"
                     "✅ **선임 가능 조건**\n👉 승강기 관리/기술/직무 교육 이수\n👉 또는 **'승강기 운행 기본교육'** 이수만으로도 선임이 가능합니다.")
             return kakao_res([{"basicCard": {"title": "일반 자격 진단 결과", "description": desc, "buttons": [
-                {"action": "webLink", "label": "🏠 안전관리자 선임하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
-                {"action": "webLink", "label": "❓ 신청 방법을 모르겠어요", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
+                {"action": "webLink", "label": "✍️ 선임 신고하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
+                {"action": "webLink", "label": "❓ 선임 신청 방법 안내", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
 
         # =========================================================
         # 고유번호 7자리 기반 서비스
@@ -200,52 +185,50 @@ def ask():
                 
                 return kakao_res([{
                     "basicCard": {
-                        "title": "⚖️ 법적 의무사항 이행 확인",
+                        "title": "📜 법적 의무사항 이행 확인",
                         "description": desc,
                         "buttons": [
-                            {"action": "message", "label": "📅 선임 기한 안내", "messageText": f"언제까지 선임해야 하나요"},
+                            {"action": "message", "label": "⏰ 선임 기한 안내", "messageText": f"언제까지 선임해야 하나요"},
                             {"action": "message", "label": "🎓 교육 이수 기준", "messageText": f"교육은 언제까지 받나요"},
-                            {"action": "message", "label": "📋 일상 점검 가이드", "messageText": f"{elv_no} 법정직무조회1"}
+                            {"action": "message", "label": "📋 안전관리자 직무 조회", "messageText": f"{elv_no} 법정직무조회1"} # 명칭 수정
                         ]
                     }
                 }])
                 
             # =====================================================
-            # 🛡️ 보험 및 점검 의무 처음 화면
+            # 📜 보험·점검 관련 법령 처음 화면
             # =====================================================
             if "보험및점검" in cmd:
                 return kakao_res([{
                     "basicCard": {
-                        "title": "🛡️ 보험 및 점검 의무",
-                        "description": "궁굼한게 무엇인가",
+                        "title": "📜 보험·점검 관련 법령",
+                        "description": "궁금하신 항목을 선택해주세요.",
                         "buttons": [
-                            {"action": "message", "label": "❓ 보험 가입은 필수인가요", "messageText": f"{elv_no} 보험질문"},
-                            {"action": "message", "label": "🛠️ 자체점검은 필수인가요", "messageText": f"{elv_no} 점검질문"},
+                            {"action": "message", "label": "🛡️ 보험 가입 필수인가요", "messageText": f"{elv_no} 보험질문"},
+                            {"action": "message", "label": "🛠️ 자체점검 필수인가요", "messageText": f"{elv_no} 점검질문"},
                             {"action": "message", "label": "↪️ 처음으로 돌아가기", "messageText": f"{elv_no}"}
                         ]
                     }
                 }])
 
             # =========================================================
-            # ❓ 보험 가입은 필수인가요
+            # 🛡️ 보험 가입 질문
             # =========================================================
-
             if "보험질문" in cmd:
                 return kakao_res([{
                     "basicCard": {
-                        "title": "❓ 보험 가입은 필수인가요",
-                        "description": "가입 설명은 여기에 입력",
+                        "title": "🛡️ 보험 가입 필수인가요",
+                        "description": "승강기 사고배상 책임보험은 법적 의무입니다.",
                         "buttons": [
-                            {"action": "message", "label": "🔍 보험 가입 조회", "messageText": f"{elv_no} 보험가입확인"},
+                            {"action": "message", "label": "🔍 보험 가입 여부 조회", "messageText": f"{elv_no} 보험가입확인"},
                             {"action": "message", "label": "↪️ 돌아가기", "messageText": f"{elv_no} 보험및점검"}
                         ]
                     }
                 }])
 
             # =========================================================
-            # 🔍 보험 가입 조회
+            # 🛡️ 보험 가입 조회
             # =========================================================
-   
             if "보험가입" in cmd or "보험확인" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
@@ -276,7 +259,7 @@ def ask():
                             "buttons": [{
                                 "action": "message",
                                 "label": "➡️ 다음 보기",
-                                "messageText": f"{elv_no} 보험확인 페이지{page+1}" # '보험확인'으로 통일
+                                "messageText": f"{elv_no} 보험확인 페이지{page+1}"
                             }]
                         })
                             
@@ -285,31 +268,29 @@ def ask():
             if "보험결과" in cmd:
                 return kakao_res([{
                     "basicCard": {
-                        "title": "🛡️ 보험 가입 여부 확인",
+                        "title": "🛡️ 보험 가입 여부 조회",
                         "description": make_insur_report(elv_no, info)
                     }
                 }])
                                     
             # =====================================================
-            # 🛠️ 자체점검은 필수인가요
+            # 🛠️ 자체점검 질문
             # =====================================================            
-            
             if "점검질문" in cmd:
                 return kakao_res([{
                     "basicCard": {
-                        "title": "🛠️ 자체점검은 필수인가요",
-                        "description": "점검 설명은 여기에 입력",
+                        "title": "🛠️ 자체점검 필수인가요",
+                        "description": "매월 1회 이상 자체점검은 필수입니다.",
                         "buttons": [
-                            {"action": "message", "label": "📝 점검 일지 조회", "messageText": f"{elv_no} 자체점검확인"},
+                            {"action": "message", "label": "🔍 최근 점검 일지 조회", "messageText": f"{elv_no} 자체점검확인"},
                             {"action": "message", "label": "↪️ 돌아가기", "messageText": f"{elv_no} 보험및점검"}
                         ]
                     }
                 }])
                                     
             # =====================================================
-            # 📝 점검 질문 → 리스트
+            # 🛠️ 점검 리스트
             # =====================================================            
-
             if "자체점검" in cmd:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
                     
@@ -329,7 +310,7 @@ def ask():
                         } for it in display[i:i+3]]
                         
                         cards.append({
-                            "title": f"📝 점검 확인 ({start+i+1}~)",
+                            "title": f"🛠️ 점검 확인 ({start+i+1}~)",
                             "description": f"🏢 {info['buldNm']}",
                             "buttons": btns
                         })
@@ -349,13 +330,13 @@ def ask():
             if "결과확인" in cmd:
                 return kakao_res([{
                     "basicCard": {
-                        "title": "🔍 자체점검일지 조회",
+                        "title": "🔍 최근 점검 일지 조회",
                         "description": make_check_report(elv_no, info) 
                     }
                 }])
                 
         # =========================================================
-        # 호기조회 (고유번호 뒤에 무조건, 삭제 금지)
+        # ⚙️ 호기조회 (고유번호 뒤에 무조건, 삭제 금지)
         # =========================================================
             if "호기정보" in utterance:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
@@ -371,16 +352,19 @@ def ask():
                         cards.append({"title": f"🔢 리스트 ({start+i+1}~)", "description": f"🏢 {info['buldNm']}", "buttons": btns})
                     if len(items) > start+15: cards.append({"title": "🚀 다음 리스트", "buttons": [{"action": "message", "label": "➡️ 다음 15개 보기", "messageText": f"{elv_no} 호기정보 페이지{page+1}"}]})
                     return kakao_res([{"carousel": {"type": "basicCard", "items": cards}}])
-
-            if "단순상세조회" in utterance:
-                return kakao_res([{"basicCard": {"title": f"✨ {elv_no} 호기 메뉴", "description": f"🏢 {info['buldNm']}", "buttons": [
-                    {"action": "message", "label": "🔍 점검 이력 조회", "messageText": f"{elv_no} 조회점검"},
-                    {"action": "message", "label": "🛡️ 보험 가입 확인", "messageText": f"{elv_no} 조회보험"},
-                    {"action": "message", "label": "⚙️ 호기별 제원표", "messageText": f"{elv_no} 조회제원"}]}}])
-
-            if "조회점검" in utterance: return kakao_res([{"simpleText": {"text": make_check_report(elv_no, info)}}])
-            if "조회보험" in utterance: return kakao_res([{"simpleText": {"text": make_insur_report(elv_no, info)}}])
-            if "조회제원" in utterance: return kakao_res([{"simpleText": {"text": make_spec_report(elv_no, info)}}])
+                    
+            if "조회제원" in utterance:
+                spec_text = make_spec_report(elv_no, info)
+                
+                return kakao_res([{
+                    "basicCard": {
+                        "title": f"⚙️ {elv_no} 호기 상세제원",
+                        "description": spec_text,
+                        "buttons": [
+                            {"action": "message","label": "📅 검사 적용 시점 확인","messageText": f"연도계산"} # 명칭 수정
+                        ]
+                    }
+                }])
 
         # =========================================================
         # 안전관리자 직무 조회
@@ -434,7 +418,7 @@ def ask():
 
             if "직무보험" in utterance:
                 return kakao_res([{"basicCard": {"title": "🛡️ 보험 가입 여부 확인", "description": make_insur_report(elv_no, info), "buttons": [
-                    {"action": "message", "label": "🔍 자체점검일지 확인", "messageText": f"{elv_no} 법정직무조회8"}]}}])
+                    {"action": "message", "label": "🔍 최근 점검 일지 조회", "messageText": f"{elv_no} 법정직무조회8"}]}}]) # 🔍 자체점검일지 확인 -> 명칭수정
                 
             if "법정직무조회8" in utterance:
                 root = get_api(URLS['BULD'], {'serviceKey': KEY, 'elevator_no': elv_no, 'numOfRows': 999})
@@ -456,19 +440,20 @@ def ask():
 
             if "직무점검" in utterance:
                 selected_info = get_info(elv_no)
-                return kakao_res([{"basicCard": {"title": "🔍 자체점검일지 조회","description": make_check_report(elv_no, selected_info),"buttons": [
+                return kakao_res([{"basicCard": {"title": "🔍 최근 점검 일지 조회","description": make_check_report(elv_no, selected_info),"buttons": [
                     {"action": "message", "label": "🏁 모든 확인 완료", "messageText": f"{elv_no} 최종마무리"}]}}])
                 
             if "최종마무리" in utterance:
                 return kakao_res([{"simpleText": {"text": f"✨ 수고하셨습니다!\n\n건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍\n\n 지금까지의 체크 리스트는 참고하시어 주기적으로 확인 하시기 바랍니다. 😄"}}])
                 
         # =========================================================
-        # 아래 수정 금지
+        # 메인 베이스 화면 (아래 수정 금지 구역 - 라벨명만 구조도 반영)
         # =========================================================
             return kakao_res([{"basicCard": {"title": f"🏢 {info['buldNm']}", "description": f"📍 주소: {info['addr']}", "buttons": [
                 {"action": "message", "label": "👤 안전관리자 현황 조회", "messageText": f"{elv_no} 👤 안전관리자 현황 조회"},
-                {"action": "message", "label": "🛡️ 보험 및 점검 의무", "messageText": f"{elv_no} 🛡️ 보험 및 점검 의무"},
-                {"action": "message", "label": "🚨 사고/고장 신고조회", "messageText": f"{elv_no} 🚨 사고/고장 신고조회"}]}}])
+                {"action": "message", "label": "📜 보험·점검 관련 법령", "messageText": f"{elv_no} 보험및점검"}, # 라벨 수정 및 발화어 통일
+                {"action": "message", "label": "🚨 사고·고장 이력", "messageText": f"{elv_no} 🚨 사고/고장 신고조회"} # 라벨 수정
+            ]}}])
 
         return kakao_res([{"simpleText": {"text": "❓ 고유번호 7자리를 입력해주세요."}}])
     except Exception as e:
