@@ -157,21 +157,21 @@ def ask():
         # --- 자격요건 결과값 버튼 명칭 구조도 반영 ---
         if "자격요건_피난용_결과" in utterance:
             desc = ("🚨 [피난용 엘리베이터 자격 안내]\n━━━━━━━━━━━━━━\n해당 승강기는 화재 시 인명 구조용으로 사용되므로 **일반 교육만으로는 선임이 불가능**합니다.\n\n"
-                    "✅ **필수 자격 요건 (중 하나)**\n1️⃣ 기능사 이상 자격증\n2️⃣ 관련학과 졸업 학위\n3️⃣ 6개월 이상의 실무 경력")
+                    "✅ **필수 자격 요건 (중 하나)**\n1️⃣ (전기,기계,전자,승강기)의 기능사 이상 자격증\n2️⃣ 관련(전기,기계,전자）학과 졸업 학위\n3️⃣ 6개월 이상의 실무 경력" 및 피난용 엘리베이터 승강기 관리교육)
             return kakao_res([{"basicCard": {"title": "피난용 자격 진단 결과", "description": desc, "buttons": [
                 {"action": "webLink", "label": "✍️ 선임 신고하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
                 {"action": "webLink", "label": "❓ 선임 신청 방법 안내", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
 
         if "자격요건_다중이용_결과" in utterance:
             desc = ("🏙️ [다중이용 건축물 자격 안내]\n━━━━━━━━━━━━━━\n16층 이상 또는 다중이용시설의 안전관리자는 **기술적인 기본 역량**이 필요합니다.\n\n"
-                    "✅ **선임 가능 조건**\n👉 자격증/학위/경력 보유자\n👉 또는 **'행안부 기술 기본교육'** 이수 시 선임 가능합니다.")
+                    "✅ **선임 가능 조건**\n👉 자격증/학위/경력 보유자\n👉 또는 **'승강기 기술 기본교육'** 이수 및 **'비상구출운전 승강기 관리'** 교육 이수 시 선임 가능합니다.")
             return kakao_res([{"basicCard": {"title": "다중이용 자격 진단 결과", "description": desc, "buttons": [
                 {"action": "webLink", "label": "✍️ 선임 신고하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
                 {"action": "webLink", "label": "❓ 선임 신청 방법 안내", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
 
         if "자격요건_일반_결과" in utterance:
             desc = ("🏠 [일반 건축물 자격 안내]\n━━━━━━━━━━━━━━\n해당 건물은 가장 보편적인 자격 요건이 적용됩니다.\n\n"
-                    "✅ **선임 가능 조건**\n👉 승강기 관리/기술/직무 교육 이수\n👉 또는 **'승강기 운행 기본교육'** 이수만으로도 선임이 가능합니다.")
+                    "✅ **선임 가능 조건**\n👉 승강기 관리/기술/직무 교육 이수\n👉 또는 **'승강기 관리 교육'** 이수만으로도 선임이 가능합니다.")
             return kakao_res([{"basicCard": {"title": "일반 자격 진단 결과", "description": desc, "buttons": [
                 {"action": "webLink", "label": "✍️ 선임 신고하러 가기", "webLinkUrl": "https://minwon.koelsa.or.kr/"},
                 {"action": "webLink", "label": "❓ 선임 신청 방법 안내", "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS"}]}}])
