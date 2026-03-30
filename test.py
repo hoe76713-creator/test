@@ -223,7 +223,7 @@ def ask():
                         "buttons": [
                             {"action": "message", "label": "🛡️ 보험 가입 필수인가요", "messageText": f"{elv_no} 보험질문"},
                             {"action": "message", "label": "🛠️ 자체점검 필수인가요", "messageText": f"{elv_no} 점검질문"},
-                            {"action": "message", "label": "↪️ 처음으로 돌아가기", "messageText": f"{elv_no}"}
+                            {"action": "message", "label": " 🏛️공단의 역활 안내", "messageText": f"공단의 역활 안내"}
                         ]
                     }
                 }])
