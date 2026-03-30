@@ -202,7 +202,7 @@ def ask():
                 
                 return kakao_res([{
                     "basicCard": {
-                        "title": "📜 법적 의무사항 이행 확인",
+                        "title": "⚖️ 법적 의무사항 이행 확인",
                         "description": desc,
                         "buttons": [
                             {"action": "message", "label": "⏰ 선임 기한 안내", "messageText": f"언제까지 선임해야 하나요"},
