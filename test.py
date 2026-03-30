@@ -116,11 +116,9 @@ def ask():
                 f"━━━━━━━━━━━━━━\n"
                 f"🔍 정확한 설치일자는 '제원 조회'에서 확인하세요!")
                 
-                return kakao_res([{"basicCard": {"description": report,"buttons": [
+            return kakao_res([{"basicCard": {"description": report,"buttons": [
                     {"action": "message", "label": "🛠️ 설치 품목 확인", "messageText": "설치 품목 확인"},
                     {"action": "message", "label": "🗓️ 정밀 연장 신청 방법", "messageText": "정밀 연장 신청 방법"}]}}])
-            
-            return kakao_res([{"simpleText": {"text": report}}])
 
         # =========================================================
         # 자격요건 진단 (이모지 교체: 🔍 -> 🏅)
