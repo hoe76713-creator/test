@@ -235,7 +235,14 @@ def ask():
                 return kakao_res([{
                     "basicCard": {
                         "title": "🛡️ 보험 가입 필수인가요",
-                        "description": "승강기 사고배상 책임보험은 법적 의무입니다.",
+                        "description": (
+                            "승강기 안전관리법 제30조에 따라 이용자 보호를 위한 보험 가입은 의무 사항입니다.\n"
+                            "━━━━━━━━━━━━━━\n"
+                            "📍 가입 대상 및 범위\n"
+                            "• 승객용·화물용·ES 등 모든 기종\n"
+                            "• 휴지(운행중지) 및 불합격 승강기 포함\n"
+                            "(사고 발생 시 배상을 위해 예외 없이 가입)"
+                        ),
                         "buttons": [
                             {"action": "message", "label": "🔍 보험 가입 여부 조회", "messageText": f"{elv_no} 보험가입확인"},
                             {"action": "message", "label": "↪️ 돌아가기", "messageText": f"{elv_no} 보험및점검"}
@@ -462,7 +469,7 @@ def ask():
                 
             if "최종마무리" in utterance:
                 return kakao_res([{"basicCard": {"title": "✨ 수고하셨습니다!","description": f"건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍\n\n지금까지의 체크 리스트는 참고하시어 주기적으로 확인 하시기 바랍니다. 😄",
-                                                 "buttons": {"action": "message","label": "처음으로 돌아가기","messageText": f"{elv_no}"}]}}])
+                                                 "buttons": {"action": "message","label": "처음으로 돌아가기","messageText": f"{elv_no}"}}}])
                 
         # =========================================================
         # 메인 베이스 화면 (아래 수정 금지 구역 - 라벨명만 구조도 반영)
