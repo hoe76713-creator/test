@@ -1,6 +1,3 @@
-전체 코드 — 검토용 통합 작업본
-실제 배포 전 README.md의 미검증 항목을 확인하세요.
-app.py
 from flask import Flask, request, jsonify, g
 from assistant_bridge import Bridge
 import requests
