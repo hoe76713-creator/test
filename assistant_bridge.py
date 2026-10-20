@@ -17,7 +17,7 @@ RESET = {'서울서부지사챗봇시작하기', '시작하기', '처음', '다�
 LEGACY = {'다시계산하기', '계산기취소', '기타부품계산', '기타계산1', '기타계산2'}
 ACTION_NAMES = {'detail': '세부 설치기준', 'history': '기준 변경 이력',
                 'source': '관련 조항 확인', 'application': '적용 시점 확인',
-                'measurement': '측정 기준 확인', 'inspection': '검사 항목 안내'}
+                'measurement': '측정 기준 확인', 'inspection': '검사 항목 안내', 'overview': '항목 목록'}
 TOPIC_BUTTONS = {
     '카 상부': [('카 상부 난간', 'detail'), ('상부틈새', 'measurement'), ('피난공간', 'detail')],
     '피트': [('피트 사다리', 'detail'), ('하부틈새', 'measurement'), ('피트 정지장치', 'detail')],
@@ -221,10 +221,51 @@ layout이 있으면 그 제목/순서/대상을 그대로 사용한다. 각 슬�
 action=history는 시점 순서의 변경 이력, application은 적용일/경과조치 우선.
 출력 카드 본문은 각각 200자 이내. 원문 단위를 보존. 제목40자 이내.
 refs는 evidence 또는 visual_evidence에 실제 전달된 ref만. 답변 카드마다 근거 refs가 필요하다.
-여러 연도의 긴 이력은 최대3개 카드로 시간순 분할한다. 내용을 한 카드에 몰아넣지 않는다.
+action=history는 카드 UI가 아닌 텍스트 변경 이력이다. cards를 연도별 절로 사용한다(최대15절).
+1992~2009 통합본부터 2013,2014,2015,2017,2018,2019,2022 및 부칙의 후속 적용일까지 시간순으로 검토한다.
+확인된 동일 내용의 연도는 묶어도 되지만 제공 판본을 임의로 생략하지 않는다. 종전 조항 미확인을 기준 없음으로 단정하지 않는다.
+history의 각 body는 700자 이내이며 전체 본문은 가능하면 근거 제외 700자 이내로 간결하게 작성한다.
+source는 관련 조항명과 원문의 해당 부분을 확인하고 detail은 측정 위치/조건을 설명한다.
+적용일은 고시/시행/개정/유예 적용일을 구분한다. 2022 부칙의 2025 적용일을 2025 신규 개정으로 쓰지 않는다.
+질문하지 않은 적용일과 무관한 절차 안내는 추가하지 않는다.
 근거 부족이면 kind=clarify로 하고 확인 가능한 범위와 부족한 조건을 안내한다.
 출처 문구와 계산 대기 문구는 서버가 붙인다. 본문에는 중복해서 쓰지 않는다.
 """
+
+
+# 목차 번호는 최신 제공 법령에서만 해석한다. 법령 수치는 하드코딩하지 않는다.
+CONTENTS_PREFIXES = {
+    '기계실': ('6.1', '6.2', '6.3', '6.4', '6.6.1', '6.6.2',
+               '6.6.3.1', '6.6.3.2', '6.6.3.3'),
+    '승강장': tuple('7.'+str(n) for n in range(1, 18)),
+    '카 상부': ('6.5.6', '6.5.7', '8.7', '8.8', '8.10'),
+    '피트': ('6.2.4', '6.5.5', '6.5.8'),
+    '카': tuple('8.'+str(n) for n in range(1, 19)),
+}
+
+
+def parent_topic(topic):
+    key = compact(topic)
+    for name in ('기계실', '승강장', '카 상부', '피트', '카'):
+        if compact(name) in key:
+            return name
+    return ''
+
+
+def text_outputs(text, limit=1000):
+    """줄 단위로 분할하며 어떤 연도/근거도 버리지 않는다."""
+    chunks, current = [], ''
+    for line in text.splitlines(keepends=True):
+        while len(line) > limit:
+            if current:
+                chunks.append(current.rstrip()); current = ''
+            chunks.append(line[:limit]); line = line[limit:]
+        if len(current)+len(line) > limit:
+            chunks.append(current.rstrip()); current = ''
+        current += line
+    if current.strip():
+        chunks.append(current.rstrip())
+    return [{'simpleText': {'text': chunk}} for chunk in chunks]
 
 
 class Bridge:
@@ -244,14 +285,58 @@ class Bridge:
             for k in [k for k,v in self.jobs.items() if v['user']==user]:
                 self.jobs.pop(k, None)
 
-    def menu_buttons(self, topic):
-        return [button(ACTION_NAMES[a], '[기준조회] '+topic+' | '+a)
-                for a in ('detail', 'application', 'history')]
+    def ensure_corpus(self):
+        with self.corpus_lock:
+            if self.corpus is None:
+                self.corpus = Corpus()
+
+    def menu_buttons(self, topic, view='initial', parent=''):
+        parent = parent or parent_topic(topic)
+        actions = ('detail', 'source', 'history')
+        result = []
+        if view in ('detail', 'source') and parent:
+            result.append(button(parent+' 항목 목록', '[기준조회] '+parent+' | overview'))
+            actions = ('source', 'history') if view == 'detail' else ('detail', 'history')
+        else:
+            actions = tuple(a for a in actions if a != view) if view != 'initial' else actions
+        result.extend(button(ACTION_NAMES[a], '[기준조회] '+topic+' | '+a) for a in actions)
+        return result[:3]
+
+    def contents(self, topic, user):
+        self.ensure_corpus()
+        c = self.corpus
+        prefixes = CONTENTS_PREFIXES[topic]
+        entries, pages = {}, set()
+        for page in c.pages:
+            if page['source'] != c.latest:
+                continue
+            for line in page['text'].splitlines():
+                match = re.match(r'^(\d+(?:\.\d+)+)\s+(.+)$', line.strip())
+                if match and match[1] in prefixes and match[1] not in entries:
+                    entries[match[1]] = match[2].strip()
+                    pages.add(page['page'])
+        if not entries:
+            return notice('이 자료에서 해당 목차를 확인하지 못했습니다. 구체적인 항목명을 입력해 주세요.')
+        ordered = {n: entries[n] for n in prefixes if n in entries}
+        session = self.sessions.setdefault(user, {})
+        session.update(topic=topic, contents=ordered, contents_parent=topic)
+        body = topic+' 기준｜항목 안내\n\n'
+        body += '\n'.join(n+' '+title for n, title in ordered.items())
+        body += '\n\n근거: '+source_label(c.sources[c.latest])+' · PDF '+ '·'.join(map(str, sorted(pages)))+'쪽'
+        body += '\n\n궁금한 항목의 번호나 이름을 입력해 주세요.'
+        outputs = text_outputs(body)
+        return self.attach_note(envelope(outputs[:3]), user)
 
     def attach_note(self, reply, user):
         note = calculation_note(self.states, user)
         if note:
             out = reply['template']['outputs'][-1]
+            if 'simpleText' in out:
+                body = out['simpleText']['text']
+                if len(body+'\n\n'+note) <= 1000:
+                    out['simpleText']['text'] = body+'\n\n'+note
+                elif len(reply['template']['outputs']) < 3:
+                    reply['template']['outputs'].append({'simpleText': {'text': note}})
             if 'basicCard' in out:
                 body = out['basicCard']['description']
                 if len(body+'\n\n'+note) <= 400:
@@ -289,6 +374,28 @@ class Bridge:
         if word in LEGACY or '최대런바이' in word or '자격요건_' in word or '선임자격' in word or '자격진단' in word:
             session.pop('pending', None)
             return None,None
+        if word == '이력계속':
+            remaining = session.get('history_remaining', [])
+            if not remaining:
+                return notice('남아 있는 변경 이력이 없습니다.'), None
+            outputs, session['history_remaining'] = remaining[:3], remaining[3:]
+            if session['history_remaining']:
+                outputs[-1]['simpleText']['text'] += '\n\n다음 내용: 이력 계속'
+            return self.attach_note(envelope(outputs), user), None
+        requested, selected_action = parse_question(raw, session.get('topic', ''))
+        broad = broad_topic(requested)
+        if broad and selected_action in ('detail', 'overview'):
+            return self.contents(broad, user), None
+        entries = session.get('contents', {})
+        if raw in entries:
+            if calculation_note(self.states, user):
+                if session.pop('numeric_confirm', '') != raw:
+                    session['numeric_confirm'] = raw
+                    return notice('계산 측정값과 목차 번호가 겹칩니다. 기준을 보려면 항목 이름을, 계산을 이어가려면 같은 수치를 다시 입력해 주세요.'), None
+                return None, None
+            raw = '[기준조회] '+session.get('contents_parent', '')+' '+raw+' '+entries[raw]+' | detail'
+        elif re.fullmatch(r'\d+(?:\.\d+)+', raw) and entries and not calculation_note(self.states, user):
+            return notice('안내한 목차에 없는 번호입니다. 항목 번호나 이름을 확인해 주세요.'), None
         numeric=all(re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?',x) for x in raw.split()) if raw else False
         if numeric:
             if session.get('pending'):
@@ -321,7 +428,9 @@ class Bridge:
                     return self.attach_note(notice('같은 질문을 확인 중입니다. 잠시 후 답변 확인을 눌러 주세요.', [button('답변 확인', '[답변확인] '+existing_id)]), user), None
             jid=uuid.uuid4().hex
             future=self.pool.submit(self.answer,raw,session.get('topic',''))
-            self.jobs[jid]={'user':user,'created':now,'future':future,'question':raw}
+            self.jobs[jid]={'user':user,'created':now,'future':future,'question':raw,
+                            'view': selected_action if raw.startswith('[기준조회] ') else 'initial',
+                            'parent': parent_topic(requested) or session.get('contents_parent', '')}
         return self.attach_note(notice('관련 법령과 적용 조건을 확인하고 있습니다. 잠시 후 답변 확인을 눌러 주세요.',[button('답변 확인','[답변확인] '+jid)]),user),None
 
     def poll(self,jid,user):
@@ -347,9 +456,17 @@ class Bridge:
             return notice('최대런바이를 입력하면 기존 계산을 시작합니다.',[button('최대 런바이 계산','최대런바이')])
         topic=result.get('topic') or '승강기 기준'
         self.sessions.setdefault(user,{})['topic']=topic
+        if result.get('history_text'):
+            outputs = text_outputs(result['history_text'], 920)
+            self.sessions[user]['history_remaining'] = outputs[3:]
+            outputs = outputs[:3]
+            if self.sessions[user]['history_remaining']:
+                outputs[-1]['simpleText']['text'] += '\n\n다음 내용: 이력 계속'
+            return self.attach_note(envelope(outputs), user)
         outputs=[]
         for c in result['cards']:
-            outputs.append(card(c['title'],c['body'],self.menu_buttons(c.get('topic') or topic)))
+            outputs.append(card(c['title'],c['body'],self.menu_buttons(
+                c.get('topic') or topic, job.get('view', 'initial'), job.get('parent', ''))))
         return self.attach_note(envelope(outputs),user)
 
     def api_json(self, stage, payload_data, schema, deadline, images=None):
@@ -529,6 +646,31 @@ class Bridge:
             item['body'] = body
         return {'kind': kind, 'topic': result.get('topic', ''), 'cards': cards}
 
+    def format_history(self, result, known, limited):
+        cards = result.get('cards', [])
+        if not cards:
+            raise ValueError('empty_history')
+        sections = [result.get('topic', '기준')+'｜기준 변경 이력']
+        for item in cards:
+            refs = list(dict.fromkeys(item.get('refs', [])))
+            if any(ref not in known for ref in refs):
+                raise ValueError('unread_history_citation')
+            if result.get('kind') == 'answer' and not refs:
+                raise ValueError('missing_history_citation')
+            body = item['body'].strip()
+            if len(body) > 700:
+                raise ValueError('history_section_length')
+            citations = [source_label(self.corpus.sources[ref.split(':')[0]])+' '+ref.split(':')[1]+'쪽'
+                         for ref in refs]
+            section = '■ '+item['title']+'\n'+body
+            if citations:
+                section += '\n근거: '+' / '.join(citations)
+            sections.append(section)
+        if limited:
+            sections.append('※ 확인된 범위의 이력입니다. 관련 원문 전체의 검토가 완료된 것은 아닙니다.')
+        return {'kind': result.get('kind', 'clarify'), 'topic': result.get('topic', ''),
+                'history_text': '\n\n'.join(sections)}
+
     def answer(self, question, previous_topic):
         started = time.monotonic()
         deadline = started + 170
@@ -542,7 +684,7 @@ class Bridge:
                              task, time.monotonic()-load, len(self.corpus.pages))
             text, action = parse_question(question, previous_topic)
             broad = broad_topic(text)
-            layout = LAYOUTS.get(broad) if action == 'detail' else None
+            layout = None  # 큰 주제는 handle의 원문 목차 안내에서 처리한다.
             if broad:
                 plan = {'kind': 'answer', 'topic': broad,
                         'terms': [x for row in LAYOUTS[broad] for x in row[2]], 'message': ''}
@@ -612,6 +754,8 @@ class Bridge:
                 if final_pass and (requested or extra_terms):
                     limited = True
                 try:
+                    if action == 'history':
+                        return self.format_history(result, known, limited)
                     return self.format_result(result, known, layout, limited)
                 except (ValueError, KeyError, TypeError) as exc:
                     last = str(exc)
