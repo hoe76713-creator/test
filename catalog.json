@@ -1,0 +1,122 @@
+[
+  {
+    "id": "source-01",
+    "filename": "03. [부칙] 승강기 검사기준 부칙(1992-2015).pdf.pdf",
+    "path": "documents/source-01.pdf",
+    "sha256": "a9fd22346675191a63490ffadddd87afcc1b59bb099ed1af4525eac17463c123",
+    "category": "addenda",
+    "pages": 8
+  },
+  {
+    "id": "source-02",
+    "filename": "[2009][제2009-67호][검사기준] 승강기검사기준.pdf",
+    "path": "documents/source-02.pdf",
+    "sha256": "bc3816f036303759b7ad6c832eb3b61600e4ca201a341ae2bd2289e6733e3a1f",
+    "category": "law",
+    "pages": 70
+  },
+  {
+    "id": "source-03",
+    "filename": "[2013][제2012-14호][별표1] 엘리베이터 안전기준.pdf",
+    "path": "documents/source-03.pdf",
+    "sha256": "f25a300d590574a1815ebcdce5130b9388561763666f81a359a36b1309c46905",
+    "category": "law",
+    "pages": 178
+  },
+  {
+    "id": "source-04",
+    "filename": "[2014][제2014-28호][별표1] 엘리베이터 안전기준.pdf",
+    "path": "documents/source-04.pdf",
+    "sha256": "5162b53cb075f1294e9df8ae059c79440d2f375c580ede89640f105773034c1d",
+    "category": "law",
+    "pages": 195
+  },
+  {
+    "id": "source-05",
+    "filename": "[2015][제2015 - 086호][별표1] 전기식 엘리베이터 구조.pdf",
+    "path": "documents/source-05.pdf",
+    "sha256": "9e6359639538da43991307736179484b4d70f7ab3e35d34e0f9ee4ebc38d0693",
+    "category": "law",
+    "pages": 188
+  },
+  {
+    "id": "source-06",
+    "filename": "[2017][제2016-143][별표1] 전기식 엘리베이터 구조.pdf",
+    "path": "documents/source-06.pdf",
+    "sha256": "de2e79327101eda6de096ea3d3f1612444d5baf3a83ee26417742600df63abc8",
+    "category": "law",
+    "pages": 188
+  },
+  {
+    "id": "source-07",
+    "filename": "[2017][제2016-143][부칙].pdf",
+    "path": "documents/source-07.pdf",
+    "sha256": "8d9bc542bd14ab9c0625a34692e2f0a642eae6473c340f164b3430f9c9a61d15",
+    "category": "addenda",
+    "pages": 2
+  },
+  {
+    "id": "source-08",
+    "filename": "[2018][제2018-22호][별표1] 전기식 엘리베이터 구조.pdf",
+    "path": "documents/source-08.pdf",
+    "sha256": "af07394f3ed91fe9d103cf5fe9084ae6d428a4f7b776ce0ed69fa124cb6373f4",
+    "category": "law",
+    "pages": 177
+  },
+  {
+    "id": "source-09",
+    "filename": "[2018][제2018-22호][부칙].pdf",
+    "path": "documents/source-09.pdf",
+    "sha256": "646b1fd553ac17044670aac575a94fa2df7f7589a7e8fa5d8d3e30dca87c7ded",
+    "category": "addenda",
+    "pages": 2
+  },
+  {
+    "id": "source-10",
+    "filename": "[2019][제2019-32호][별표22] 엘리베이터 안전기준.pdf",
+    "path": "documents/source-10.pdf",
+    "sha256": "0cedc92c8cc8591b79790c12f5c79211468000ca4e2ebc13b811547a5d15054c",
+    "category": "law",
+    "pages": 211
+  },
+  {
+    "id": "source-11",
+    "filename": "[2019][제2019-32호][부칙].pdf",
+    "path": "documents/source-11.pdf",
+    "sha256": "1fb3ab72ef1e558ac6dc6d912930fc59c4c03bac0e4704cc463615ad3b665011",
+    "category": "addenda",
+    "pages": 2
+  },
+  {
+    "id": "source-12",
+    "filename": "[2022][제2022-18호][별표22] 엘리베이터 안전기준.pdf",
+    "path": "documents/source-12.pdf",
+    "sha256": "eb8866d4ba52fb26e2737564798b485e006315e9c2041eab6afa5b8cb5e7a81d",
+    "category": "law",
+    "pages": 211
+  },
+  {
+    "id": "source-13",
+    "filename": "[2022][제2022-18호][부칙].pdf",
+    "path": "documents/source-13.pdf",
+    "sha256": "1a7620a0962bc93c38454db39c0ead993dbf2df03429f59b404c3c8480ac3e93",
+    "category": "addenda",
+    "pages": 3
+  },
+  {
+    "id": "source-14",
+    "filename": "[별표 1] 설치검사기준(제5조제2항 관련)(승강기 설치검사 및 안전검사에 관한 운영규정).pdf",
+    "path": "documents/source-14.pdf",
+    "sha256": "c625165d9a14f63cd3d22b3072931802a0b97d3e7d5ed8dfa6279a1e63d9ffb9",
+    "category": "inspection",
+    "pages": 137
+  },
+  {
+    "id": "source-15",
+    "filename": "[별표 2] 승강기 정기검사기준(제11조제3항제1호 관련)(승강기 설치검사 및 안전검사에 관한 운영규정).pdf",
+    "path": "documents/source-15.pdf",
+    "sha256": "4a7fbcaa54f2134a53db782c998095dcf69b2e224ca3b6901f7ee58840040911",
+    "category": "inspection",
+    "pages": 96
+  }
+]
