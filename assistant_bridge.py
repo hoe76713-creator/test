@@ -387,13 +387,16 @@ class Bridge:
         if broad and selected_action in ('detail', 'overview'):
             return self.contents(broad, user), None
         entries = session.get('contents', {})
-        if raw in entries:
+        matches = [number for number, title in entries.items()
+                   if compact(raw) and compact(raw) in compact(title)]
+        selected_number = raw if raw in entries else (matches[0] if len(matches) == 1 else None)
+        if selected_number:
             if calculation_note(self.states, user):
                 if session.pop('numeric_confirm', '') != raw:
                     session['numeric_confirm'] = raw
                     return notice('계산 측정값과 목차 번호가 겹칩니다. 기준을 보려면 항목 이름을, 계산을 이어가려면 같은 수치를 다시 입력해 주세요.'), None
                 return None, None
-            raw = '[기준조회] '+session.get('contents_parent', '')+' '+raw+' '+entries[raw]+' | detail'
+            raw = '[기준조회] '+session.get('contents_parent', '')+' '+selected_number+' '+entries[selected_number]+' | detail'
         elif re.fullmatch(r'\d+(?:\.\d+)+', raw) and entries and not calculation_note(self.states, user):
             return notice('안내한 목차에 없는 번호입니다. 항목 번호나 이름을 확인해 주세요.'), None
         numeric=all(re.fullmatch(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?',x) for x in raw.split()) if raw else False
@@ -530,6 +533,9 @@ class Bridge:
         """판본별 검색과 부칙 열람을 일괄 수행. 검색 범위/생략 쪽은 별도로 기록한다."""
         c = self.corpus
         expanded = list(terms)
+        for term in terms:
+            expanded.extend(re.findall(r'(?<![\d.])\d+(?:\.\d+){1,5}(?![\d.])', term))
+            expanded.extend(x for x in re.split(r'[\s·ㆍ‧,]+', term) if len(x) >= 2)
         for key, values in ALIASES.items():
             if any(key in compact(t) for t in terms):
                 expanded.extend(values)
@@ -688,6 +694,9 @@ class Bridge:
             if broad:
                 plan = {'kind': 'answer', 'topic': broad,
                         'terms': [x for row in LAYOUTS[broad] for x in row[2]], 'message': ''}
+            elif (section := re.search(r'(?<![\d.])(\d+(?:\.\d+){1,5})(?![\d.])', text)):
+                plan = {'kind': 'answer', 'topic': text,
+                        'terms': [section.group(1)], 'message': ''}
             else:
                 plan = self.api_json('plan', {'question': text, 'action': action,
                                               'previous_topic': previous_topic}, PLAN_SCHEMA, deadline)
