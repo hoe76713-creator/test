@@ -1,116 +1,96 @@
-            citations = [source_label(self.corpus.sources[ref.split(':')[0]])+' '+ref.split(':')[1]+'쪽'
-                         for ref in refs]
-            section = '■ '+item['title']+'\n'+body
-            if citations:
-                section += '\n근거: '+' / '.join(citations)
-            sections.append(section)
-        if limited:
-            sections.append('※ 확인된 범위의 이력입니다. 관련 원문 전체의 검토가 완료된 것은 아닙니다.')
-        return {'kind': result.get('kind', 'clarify'), 'topic': result.get('topic', ''),
-                'history_text': '\n\n'.join(sections)}
+"""기존 계산·조회를 보존하는 카카오 자연어 연결 모듈. Python 3.10+."""
+import base64
+import concurrent.futures
+import json
+import logging
+import os
+import re
+import threading
+import time
+import uuid
+from pathlib import Path
 
-    def answer(self, question, previous_topic):
-        started = time.monotonic()
-        deadline = started + 170
-        task = uuid.uuid4().hex[:8]
-        try:
-            with self.corpus_lock:
-                if self.corpus is None:
-                    load = time.monotonic()
-                    self.corpus = Corpus()
-                    LOG.info('task=%s stage=corpus_load seconds=%.2f pages=%d',
-                             task, time.monotonic()-load, len(self.corpus.pages))
-            text, action = parse_question(question, previous_topic)
-            date_context = historical_context(text)
-            broad = broad_topic(text)
-            layout = None  # 큰 주제는 handle의 원문 목차 안내에서 처리한다.
-            if broad:
-                plan = {'kind': 'answer', 'topic': broad,
-                        'terms': [x for row in LAYOUTS[broad] for x in row[2]], 'message': ''}
-            elif (section := re.search(r'(?<![\d.])(\d+(?:\.\d+){1,5})(?![\d.])', text)):
-                plan = {'kind': 'answer', 'topic': text,
-                        'terms': [section.group(1)], 'message': ''}
-            else:
-                plan = self.api_json('plan', {'question': text, 'action': action,
-                                              'previous_topic': previous_topic}, PLAN_SCHEMA, deadline)
-            if plan['kind'] != 'answer':
-                if plan['kind'] in ('selfcheck', 'insurance', 'runby'):
-                    return plan
-                return {'kind': plan['kind'], 'topic': plan['topic'],
-                        'cards': [{'title': '질문 확인', 'topic': plan['topic'],
-                                   'body': plan['message'][:250], 'refs': []}]}
-            retrieval = time.monotonic()
-            retrieval_terms = plan['terms']+[plan['topic']]
-            if date_context['years']:
-                retrieval_terms.extend([str(y)+'년' for y in date_context['years']])
-                if '기계실' in compact(text) and any(t in text for t in ('조도', '조명')):
-                    retrieval_terms.append('기계실조도')
-            evidence, coverage = self.collect(retrieval_terms, action, layout)
-            LOG.info('task=%s stage=retrieve seconds=%.2f pages=%d omitted=%d', task,
-                     time.monotonic()-retrieval, len(evidence), len(coverage['omitted_refs']))
-            if not evidence:
-                return {'kind': 'clarify', 'topic': plan['topic'], 'cards': [{
-                    'title': '근거 확인', 'topic': plan['topic'], 'refs': [],
-                    'body': '이번 검색에서 관련 근거를 확인하지 못했습니다. 대상과 설치 조건을 구체적으로 알려주세요.'}]}
-            c = self.corpus
-            known = {p['ref'] for p in evidence}
-            visual_seen = set()
-            images = []
-            limited = bool(coverage['omitted_refs']) or (action in ('history', 'application') and any(x['not_selected'] for x in coverage['sources']))
-            last = None
-            for attempt in range(3):
-                # 검색·추가 열람은 최대 한 번만 일괄 수행하고 반드시 최종 작성 단계로 진행한다.
-                final_pass = attempt >= 1
-                payload = {'question': text, 'action': action, 'topic': plan['topic'],
-                           'layout': [{'title': r[0], 'topic': r[1]} for r in layout] if layout else [],
-                           'latest_source': c.latest, 'evidence': evidence, 'coverage': coverage,
-                           'historical_context': date_context,
-                           'visual_evidence': sorted(visual_seen), 'final_pass': final_pass,
-                           'validation_feedback': last}
-                result = self.api_json('answer', payload, ANSWER_SCHEMA, deadline, images)
-                requested = result.get('read_refs', [])+result.get('visual_refs', [])
-                extra_terms = result.get('search_terms', [])
-                if attempt == 0 and (requested or extra_terms):
-                    extra_start = time.monotonic()
-                    if extra_terms:
-                        extra, extra_coverage = self.collect(extra_terms, action, None)
-                        for page in extra:
-                            if page['ref'] not in known and len(evidence) < 70:
-                                evidence.append(page)
-                                known.add(page['ref'])
-                        coverage['additional_search'] = extra_coverage
-                    requested = list(dict.fromkeys(requested))
-                    valid = [ref for ref in requested if ref in c.lookup]
-                    added, _ = c.read(valid[:16])
-                    for page in added:
-                        if page['ref'] not in known:
-                            evidence.append(page)
-                            known.add(page['ref'])
-                    visuals = [ref for ref in dict.fromkeys(result.get('visual_refs', [])) if ref in known][:8]
-                    if visuals:
-                        _, pictures = c.read(visuals, True)
-                        images.extend(pictures)
-                        visual_seen.update(visuals)
-                    omitted = set(requested)-known
-                    omitted_visuals = set(result.get('visual_refs', []))-visual_seen
-                    limited = limited or bool(omitted or omitted_visuals)
-                    coverage['unread_requested_refs'] = sorted(omitted)
-                    coverage['unread_requested_visuals'] = sorted(omitted_visuals)
-                    LOG.info('task=%s stage=additional_read seconds=%.2f pages=%d images=%d',
-                             task, time.monotonic()-extra_start, len(added), len(visuals))
-                    continue
-                if final_pass and (requested or extra_terms):
-                    limited = True
-                try:
-                    if action == 'history':
-                        return self.format_history(result, known, limited)
-                    return self.format_result(result, known, layout, limited)
-                except (ValueError, KeyError, TypeError) as exc:
-                    last = str(exc)
-                    LOG.warning('task=%s stage=validate attempt=%d code=%s', task, attempt+1, last)
-            # 횟수 한도를 자료 없음이나 전수검토 완료로 바꾸지 않는다.
-            return {'kind': 'clarify', 'topic': plan['topic'], 'cards': [{
-                'title': '확인 범위 안내', 'topic': plan['topic'], 'refs': [],
-                'body': '관련 원문은 찾았지만 근거와 출력 형식을 검증한 답변을 완성하지 못했습니다. 대상이나 확인할 시점을 좁혀 주세요.'}]}
-        finally:
-            LOG.info('task=%s stage=total seconds=%.2f', task, time.monotonic()-started)
+import requests
+
+BASE = Path(__file__).resolve().parent
+RESET = {'서울서부지사챗봇시작하기', '시작하기', '처음', '다시', '종료', '취소', '그만'}
+LEGACY = {'다시계산하기', '계산기취소', '기타부품계산', '기타계산1', '기타계산2'}
+ACTION_NAMES = {'detail': '세부 설치기준', 'history': '기준 변경 이력',
+                'source': '관련 조항 확인', 'application': '적용 시점 확인',
+                'measurement': '측정 기준 확인', 'inspection': '검사 항목 안내', 'overview': '항목 목록'}
+TOPIC_BUTTONS = {
+    '카 상부': [('카 상부 난간', 'detail'), ('상부틈새', 'measurement'), ('피난공간', 'detail')],
+    '피트': [('피트 사다리', 'detail'), ('하부틈새', 'measurement'), ('피트 정지장치', 'detail')],
+    '기계실': [('기계실 출입', 'detail'), ('기계실 작업공간', 'detail'), ('기계실 조명', 'detail')],
+    '승강장': [('승강장 문', 'detail'), ('승강장 잠금장치', 'detail'), ('승강장 조명', 'detail')],
+    '카': [('카 구조', 'detail'), ('카 내부 설비', 'detail'), ('카 상부', 'detail')],
+}
+ALIASES = {
+    '상부틈새': ['꼭대기틈새', '3.1.3(7)', '5.7.1', '6.5.7'],
+    '꼭대기틈새': ['상부틈새', '3.1.3(7)', '5.7.1', '6.5.7'],
+    '발보호판': ['8.13.3.1', '8.7.2', '카지붕', '발보호판'],
+    '피트난간': ['피트', '난간', '칸막이', '3.1.3(13)', '5.6', '6.5.5'],
+    '피트단차': ['피트', '난간', '칸막이', '3.1.3(13)'],
+    '피트이스탑': ['피트', '정지장치', '정지스위치'],
+    '기계실조도': ['기계실', '조도', '조명', '3.1.5(6)', '6.3.7', '6.1.4'],
+    '기계실조명': ['기계실', '조도', '조명', '3.1.5(6)', '6.3.7', '6.1.4'],
+    '기계실사다리': ['기계실', '출입 통로', '6.2.5'],
+}
+# 표준화는 배포 자료에 포함하지 않고 검색 단계에서도 차단한다.
+ALLOWED_CATEGORIES = {'law', 'addenda', 'inspection'}
+LOG = logging.getLogger('elevator.search')
+LOG.setLevel(logging.INFO)
+if not LOG.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    LOG.addHandler(handler)
+LOG.propagate = False
+
+# 수치 자체는 이 표에 넣지 않는다. 카드 제목·순서와 검색어만 고정한다.
+LAYOUTS = {
+    '승강장': [('승강장 출입구 치수', '승강장 출입구', ['출입구 유효 높이', '출입구 유효 폭']),
+              ('문틈·문턱 측정기준', '승강장 문틈·문턱', ['문짝 간 틈새', '문턱 사이의 수평']),
+              ('승강장 조도 기준', '승강장 조명', ['승강장 조명'])],
+    '기계실': [('출입문·접근통로 치수', '기계실 출입', ['기계실 출입문', '출입 통로', '출입문의 크기']),
+              ('작업공간·환경 측정기준', '기계실 작업공간·조명', ['기계실 바닥', '작업구역', '조명 및 콘센트', '환기']),
+              ('안전설비·설치요건', '기계실 안전설비', ['기계실', '주 개폐기', '잠금장치'])],
+    '피트': [('출입문·사다리 치수', '피트 사다리', ['피트 출입문', '피트 사다리']),
+           ('하부틈새·피난공간 치수', '하부틈새', ['하부 틈새', '피난공간', '피트 바닥']),
+           ('정지장치·점검설비 설치기준', '피트 정지장치', ['피트', '정지장치', '점검운전 조작반'])],
+    '카 상부': [('보호난간·발보호판 치수', '카 상부 난간', ['보호난간', '발보호판']),
+              ('상부틈새·피난공간 치수', '상부틈새', ['상부 틈새', '피난공간']),
+              ('점검·조명설비 설치기준', '카 상부 점검설비', ['카 지붕', '점검운전', '비상조명'])],
+    '카': [('카 내부·출입구 치수', '카 구조', ['카 내부', '유효면적', '출입구 유효 높이']),
+          ('조명·조작설비 측정기준', '카 내부 설비', ['카 조명', '조작버튼', '비상조명']),
+          ('카 상부·하부 설치기준', '카 상부·하부', ['카 지붕', '보호난간', '하부 틈새'])],
+}
+
+
+def object_schema(properties):
+    return {'type': 'object', 'properties': properties,
+            'required': list(properties), 'additionalProperties': False}
+
+
+STR = {'type': 'string'}
+STRINGS = {'type': 'array', 'items': STR}
+PLAN_SCHEMA = object_schema({'kind': {'type': 'string', 'enum': [
+    'answer', 'clarify', 'out_of_scope', 'selfcheck', 'insurance', 'runby']},
+    'topic': STR, 'terms': STRINGS, 'message': STR})
+CARD_SCHEMA = object_schema({'title': STR, 'topic': STR, 'body': STR, 'refs': STRINGS})
+ANSWER_SCHEMA = object_schema({'kind': {'type': 'string', 'enum': ['answer', 'clarify']},
+    'topic': STR, 'cards': {'type': 'array', 'items': CARD_SCHEMA},
+    'read_refs': STRINGS, 'visual_refs': STRINGS, 'search_terms': STRINGS})
+
+
+class LookupFailure(RuntimeError):
+    def __init__(self, code, message):
+        super().__init__(code)
+        self.code, self.public_message = code, message
+
+
+def parse_question(raw, previous=''):
+    action = 'detail'
+    text = raw.strip()
+    if text.startswith('[기준조회] '):
+        text, sep, selected = text[len('[기준조회] '):].rpartition('|')
+        if not sep or selected.strip() not in ACTION_NAMES:
