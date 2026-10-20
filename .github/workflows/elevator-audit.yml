@@ -13,7 +13,7 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 330
 
     steps:
       - name: Download repository
@@ -32,7 +32,8 @@ jobs:
       - name: Check Python files
         run: python -m py_compile assistant_bridge.py run_audit.py
 
-      - name: Generate 10 actual answers
+      - name: Generate 100 actual answers
+        timeout-minutes: 310
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-6-luna
@@ -47,7 +48,7 @@ jobs:
             --app-dir . \
             --output audit-results \
             --live \
-            --limit 10
+            --limit 100
 
       - name: Save audit results
         if: always()
