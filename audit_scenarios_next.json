@@ -1,0 +1,202 @@
+[
+  {
+    "id": "S01",
+    "topic": "기계실 조도",
+    "variant": 6,
+    "mode": 6,
+    "permit_date": "2013-09-14",
+    "inspection_date": "2014-04-22",
+    "initial": "허가일은 2013-09-14, 승객용 권상식이야. 기계실 조도: 기계실 바닥이 100 lx인데 적합해? 정격하중은 750 kg이야.",
+    "condition": "기계실 바닥이 100 lx인데 적합해?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0007"
+  },
+  {
+    "id": "S02",
+    "topic": "기계실 출입문",
+    "variant": 5,
+    "mode": 5,
+    "permit_date": "2013-09-14",
+    "inspection_date": "2014-04-22",
+    "initial": "13년도 허가 기계실 출입문. 문 폭 700 mm, 높이 1800 mm야. 적합해? 정격하중은 700 kg이야.",
+    "condition": "문 폭 700 mm, 높이 1800 mm야. 적합해?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0046"
+  },
+  {
+    "id": "S03",
+    "topic": "기계실 출입문",
+    "variant": 36,
+    "mode": 6,
+    "permit_date": "2009-11-24",
+    "inspection_date": "2010-07-02",
+    "initial": "허가일은 2009-11-24, 승객용 권상식이야. 기계실 출입문: 문 폭 700 mm, 높이 1800 mm야. 적합해? 정격하중은 2250 kg이야.",
+    "condition": "문 폭 700 mm, 높이 1800 mm야. 적합해?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0077"
+  },
+  {
+    "id": "S04",
+    "topic": "기계실 작업공간",
+    "variant": 0,
+    "mode": 0,
+    "permit_date": "1997-08-18",
+    "inspection_date": "1998-03-26",
+    "initial": "1997년 기계실 작업공간 기준 정격하중은 450 kg이야.",
+    "condition": "제어반 앞 공간이 깊이 0.7 m, 폭 0.5 m야.",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0081"
+  },
+  {
+    "id": "S05",
+    "topic": "기계실 조도",
+    "variant": 1,
+    "mode": 1,
+    "permit_date": "1997-08-17",
+    "inspection_date": "1998-03-25",
+    "initial": "1997년 8월 허가에 기계실 바닥이 100 lx인데 적합해? 기계실 조도 기준으로 봐줘. 정격하중은 500 kg이야.",
+    "condition": "기계실 바닥이 100 lx인데 적합해?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0002"
+  },
+  {
+    "id": "S06",
+    "topic": "기계실 바닥 단차",
+    "variant": 3,
+    "mode": 3,
+    "permit_date": "2013-09-14",
+    "inspection_date": "2013-09-14",
+    "initial": "설치검사 합격일이 2013년 9월 14일인데 바닥 단차가 450 mm인데 사다리가 필요해? 기계실 바닥 단차 확인해줘. 정격하중은 600 kg이야.",
+    "condition": "바닥 단차가 450 mm인데 사다리가 필요해?",
+    "route": "inspection_fallback",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0124"
+  },
+  {
+    "id": "S07",
+    "topic": "피트 하부틈새",
+    "variant": 0,
+    "mode": 0,
+    "permit_date": "1997-08-17",
+    "inspection_date": "1998-03-25",
+    "initial": "1997년 피트 하부틈새 기준 정격하중은 450 kg이야.",
+    "condition": "피트 깊이가 1.5 m이면 하부틈새도 적합해?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0681"
+  },
+  {
+    "id": "S08",
+    "topic": "피트 정지거리",
+    "variant": 1,
+    "mode": 1,
+    "permit_date": "2020-11-20",
+    "inspection_date": "2014-04-22",
+    "initial": "2020년 11월 허가에 피트 정지거리가 바닥에서 1미터에 있는데 괜찮은거야?",
+    "condition": "피트 정지거리가 바닥에서 1미터에 있는데 괜찮은거야?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0842"
+  },
+  {
+    "id": "S09",
+    "topic": "ARD",
+    "variant": 3,
+    "mode": 3,
+    "permit_date": "2013-09-15",
+    "inspection_date": "2018-04-10",
+    "initial": "완성검사 합격일이 2018년 4월 10일인데 ARD 작동할 때 부저가 안 나와. 정상인 거야?",
+    "condition": "ARD 작동할 때 부저가 안 나와. 고장이야?",
+    "route": "inspection_fallback",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0804"
+  },
+  {
+    "id": "S10",
+    "topic": "카 상부 발보호판",
+    "variant": 4,
+    "mode": 4,
+    "permit_date": "1997-08-17",
+    "inspection_date": "1998-03-25",
+    "initial": "1997년 8월 17일 허가 신청했고 다음 해 설치했어. 카 상부 발보호판, 발보호판 높이가 100 mm인데 어디에 설치해? 정격하중은 650 kg이야.",
+    "condition": "발보호판 높이가 100 mm인데 어디에 설치해?",
+    "route": "permit",
+    "semantic_status": "NOT_REVIEWED",
+    "checks": [
+      "사건 날짜 구분",
+      "관련 조항과 수치 원문 대조",
+      "측정 위치와 단위",
+      "예외·적용 조건",
+      "자료 미확보와 의무 없음 구분"
+    ],
+    "previous_case_id": "C0525"
+  }
+]
