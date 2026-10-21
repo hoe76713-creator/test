@@ -1,0 +1,45 @@
+name: Elevator conversation audit (10 scenarios)
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Number of scenarios (1 to 10, max 3 followups)
+        default: '10'
+        required: true
+      workers:
+        description: Parallel conversations (1 to 10)
+        default: '2'
+        required: true
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: gpt-6-luna
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install existing app dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run multi-turn conversations
+        env:
+          AUDIT_LIMIT: ${{ inputs.limit }}
+          AUDIT_WORKERS: ${{ inputs.workers }}
+        run: >-
+          python run_conversation_audit.py --app-dir .
+          --output conversation-results --live
+          --limit "$AUDIT_LIMIT" --workers "$AUDIT_WORKERS"
+      - name: Upload results even if the test is interrupted
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elevator-conversation-audit
+          path: |
+            conversation-results/
+            conversation-results.zip
+          if-no-files-found: warn
