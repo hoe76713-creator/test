@@ -1,0 +1,1964 @@
+from flask import Flask, request, jsonify, g
+from assistant_bridge import Bridge
+import requests
+import xml.etree.ElementTree as ET
+import datetime
+import re
+import math
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+app = Flask(__name__)
+
+runby_states = {}
+bridge = Bridge(runby_states)
+
+KEY = os.environ.get('PUBLIC_DATA_API_KEY', '')
+URLS = {
+    'BULD': "http://apis.data.go.kr/B553664/BuldElevatorService/getBuldElvtrList",
+    'SAFE': "http://apis.data.go.kr/B553664/ElevatorSafeMngrService/getSafeMngrList",
+    'INSUR': "http://apis.data.go.kr/B553664/ElevatorInsuranceService/getElvtrInsurance",
+    'CHECK': "http://apis.data.go.kr/B553664/ElevatorSelfCheckService/getSelfCheckList",
+    # 공공데이터포털 서비스 End Point + 상세 오퍼레이션 이름.
+    # 인증키는 아래 URL에 포함하지 않고 PUBLIC_DATA_API_KEY 환경변수 사용.
+    'SPEC_V1': "https://apis.data.go.kr/B553664/ElevatorSpecService/getElvtrSpecV1",
+    'VIEW_M': "https://apis.data.go.kr/B553664/ElevatorInformationService/getElevatorViewM",
+    # 4-3: 같은 ElevatorInformationService의 검사이력 오퍼레이션.
+    'INSP_HISTORY': os.environ.get(
+        'ELVTR_INSP_HISTORY_URL',
+        'https://apis.data.go.kr/B553664/ElevatorInformationService/getElvtrInspctInqireM',
+    ),
+    # 6-1/6-2: 공공데이터포털 제공 ElevatorInspectsafeService.
+    'INSP_SAFE': os.environ.get(
+        'ELVTR_INSP_SAFE_URL',
+        'https://apis.data.go.kr/B553664/ElevatorInspectsafeService/getInspectsafeList',
+    ).strip(),
+    'INSP_FAIL': os.environ.get(
+        'ELVTR_INSP_FAIL_URL',
+        'https://apis.data.go.kr/B553664/ElevatorInspectsafeService/getInspectFailList',
+    ).strip(),
+}
+
+
+def get_api(url, params):
+    try:
+        res = requests.get(url, params=params, timeout=5.0)
+        return ET.fromstring(res.content.strip()) if res.status_code == 200 else None
+    except:
+        return None
+
+
+def format_dt(s):
+    if not s or s in ["--", ""]:
+        return "정보없음"
+    c = s.replace("-", "").strip()
+    return f"{c[:4]}년 {c[4:6]}월 {c[6:]}일" if len(c) == 8 else s
+
+
+def get_info(no):
+    root = get_api(URLS['BULD'], {
+        'serviceKey': KEY,
+        'elevator_no': no,
+    })
+    if root is not None and root.find('.//item') is not None:
+        it = root.find('.//item')
+        return {
+            "buldNm": it.findtext('buldNm') or "정보없음",
+            "addr": it.findtext('address1') or "주소 정보 없음",
+            "asign": it.findtext('elvtrAsignNo') or "-",
+        }
+    return {
+        "buldNm": "정보없음",
+        "addr": "정보없음",
+        "asign": "-",
+    }
+
+
+def kakao_res(outputs):
+    return jsonify({
+        "version": "2.0",
+        "template": {"outputs": outputs},
+    })
+
+
+def _value(item, *names, default="-"):
+    if item is None:
+        return default
+    for name in names:
+        value = item.findtext(name)
+        if value and value.strip():
+            return value.strip()
+    return default
+
+
+def _first_item(api_name, params):
+    url = URLS.get(api_name)
+    if not url:
+        return None
+    root = get_api(url, params)
+    return root.find('.//item') if root is not None else None
+
+
+def make_spec_report(no, info):
+    """4-1번 상세정보 + 8번 제원정보만 사용(3번 운행정보 API 미호출).
+
+    4-1 API의 속도 숫자는 이미 m/s 기준으로 입력된 값이다.
+    API 메타데이터의 잘못된 m/min 표기로 인해 60으로 나누지 않는다.
+    """
+    view = _first_item('VIEW_M', {'serviceKey': KEY, 'elevator_no': no})
+    spec_v1 = _first_item('SPEC_V1', {
+        'serviceKey': KEY, 'elevator_no': no,
+        'pageNo': 1, 'numOfRows': 10,
+    })
+    if view is None and spec_v1 is None:
+        return "⚠️ 제원 조회 실패"
+
+    speed = _value(view, 'ratedSpeed', default='') or _value(spec_v1, 'ratedSpeed')
+    model = _value(view, 'elvtrModel', default='') or _value(spec_v1, 'elvtrModel')
+    kind = _value(view, 'elvtrKindNm')
+    status = _value(view, 'elvtrStts', default='정보없음')
+    install = (_value(view, 'installationDe', 'frstInstallationDe', default='')
+               or _value(spec_v1, 'installationDe'))
+    load = _value(view, 'liveLoad', default='') or _value(spec_v1, 'liveLoad')
+    cap = _value(view, 'ratedCap', default='') or _value(spec_v1, 'ratedCap')
+    mfg = (_value(view, 'mnfcturCpnyNm', default='')
+           or _value(spec_v1, 'mnfcturCpnyNm'))
+    mnt = (_value(view, 'companyNm', 'mntCpnyNm', default='')
+           or _value(spec_v1, 'companyNm', 'mntCpnyNm'))
+    section = (_value(spec_v1, 'shuttleSection', default='')
+               or _value(view, 'shuttleSection', default=''))
+    floor = (_value(view, 'shuttleFloorCnt', default='')
+             or _value(spec_v1, 'shuttleFloorCnt'))
+
+    lines = [
+        '⚙️ [호기별 제원표]', '━━━━━━━━━━━━━━',
+        f'🏷️ 모델명: {model}', f'🛗 승강기 종류: {kind}',
+        f'🚦 운행상태: {status}',
+        f'💨 정격속도: {speed} m/s',
+        f'🏗️ 최초 설치일: {format_dt(install)}',
+        f'🏭 제조업체: {mfg}',
+        f'🔧 유지관리업체: {mnt}',
+        f'📦 하중: {load}kg', f'👨‍👩‍👧 정원: {cap}명',
+        f'↕️ 운행구간: {section}층' if section else f'↕️ 층수: {floor}층',
+    ]
+    if spec_v1 is not None:
+        lines.extend([
+            '', '📐 [카 및 출입문 치수]', '━━━━━━━━━━━━━━',
+            f"📏 카 내부 폭: {_value(spec_v1, 'carWidth')}mm",
+            f"📏 카 내부 깊이: {_value(spec_v1, 'carInLength')}mm",
+            f"🚪 출입문 폭: {_value(spec_v1, 'doorWidth')}mm",
+            f"🚪 출입문 높이: {_value(spec_v1, 'doorHeight')}mm",
+        ])
+    return '\n'.join(lines)
+
+
+def _month_key(year, month):
+    return f'{year:04d}{month:02d}'
+
+
+def _check_month(no, ym):
+    """한 달 자체점검 세부항목을 가져와 표면에 노출된 결과 명칭을 수집."""
+    root = get_api(URLS['CHECK'], {
+        'serviceKey': KEY, 'elevator_no': no, 'yyyymm': ym,
+        'pageNo': 1, 'numOfRows': 500,
+    })
+    if root is None or root.findtext('.//resultCode') not in (None, '00'):
+        return ('조회 실패', '', '')
+    items = root.findall('.//item')
+    if not items:
+        return ('조회된 점검 기록 없음', '', '')
+    # 184개 내외의 점검 세부항목 중 값이 있는 항목을 찾는다.
+    # 첫 항목이 비어 있어도 뒤의 항목에 등록된 점검결과를 사용할 수 있다.
+    # 이번 단계에서는 세부 결과 코드를 이용한 불량 여부 재판정은 하지 않는다.
+    result = next((r for it in items
+                   if (r := _value(it, 'selchkResultNm', default=''))),
+                  '결과 정보 없음')
+    company = next((r for it in items
+                    if (r := _value(it, 'companyNm', default=''))), '-')
+    inspector = next((r for it in items
+                      if (r := _value(it, 'selchkUsnm', default=''))), '-')
+    return (result, company, inspector)
+
+
+def _check_months(no, months):
+    # 각 월별 API 호출을 병렬화해 22회 직렬 호출에 따른 지연을 줄입니다.
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(24, len(months))) as pool:
+        futures = {pool.submit(_check_month, no, ym): ym for ym in months}
+        for future in as_completed(futures):
+            ym = futures[future]
+            try:
+                results[ym] = future.result()
+            except Exception:
+                results[ym] = ('조회 실패', '', '')
+    return results
+
+
+def _month_description(ym, row, compact=False):
+    result, company, inspector = row
+    month_name = f'{ym[:4]}년 {int(ym[4:])}월'
+    if result in ('조회된 점검 기록 없음', '조회 실패'):
+        return f'📅 {month_name} 점검\n⚠️ {result}'
+    return (f'📅 {month_name} 점검\n'
+            f'✅ 결과: {result}\n'
+            f'🛠️ 업체: {company}\n'
+            f'👤 점검자: {inspector}')
+
+
+def _split_month_cards(title, months, data, limit=1000):
+    header = f'🛠️ [{title}]\n━━━━━━━━━━━━━━'
+    cards, buf = [], header
+    for ym in months:
+        record = _month_description(ym, data[ym])
+        candidate = buf + '\n\n' + record
+        if len(candidate) > limit and buf != header:
+            cards.append(buf)
+            buf = header + '\n\n' + record
+        else:
+            buf = candidate
+    cards.append(buf)
+    return cards
+
+
+def _two_year_check_months(today=None):
+    today = today or datetime.datetime.now()
+    current = [_month_key(today.year, m) for m in range(today.month, 0, -1)]
+    previous = [_month_key(today.year - 1, m) for m in range(12, 0, -1)]
+    return current + previous
+
+
+def make_check_history_offset(no, offset=0, today=None, limit=400, max_months=5):
+    months = _two_year_check_months(today)
+    offset = min(max(0, int(offset)), len(months) - 1)
+    requested = months[offset:offset + max_months]
+    results = _check_months(no, requested)
+    header = f'🛠️ [자체점검 이력 {offset + 1}~{min(offset + max_months,len(months))}/{len(months)}개월]\n━━━━━━━━━━━━━━'
+    lines = [header]
+    count = 0
+    for ym in requested:
+        entry = _month_description(ym, results[ym])
+        if len('\n\n'.join(lines + [entry])) > limit and count:
+            break
+        if len('\n\n'.join(lines + [entry])) > limit:
+            entry = entry[:max(0, limit-len(header)-5)] + '…'
+        lines.append(entry)
+        count += 1
+    next_offset = offset + count
+    buttons = []
+    if offset:
+        buttons.append({'action':'message', 'label':'⬅️ 이전 점검 이력',
+                        'messageText':f'{no} 결과확인 시작{max(0, offset-max_months)}'})
+    if next_offset < len(months):
+        buttons.append({'action':'message','label':'➡️ 다음 점검 이력',
+                        'messageText':f'{no} 결과확인 시작{next_offset}'})
+    return [{'textCard':{'title':'🛠️ 자체점검 이력',
+                         'description':'\n\n'.join(lines), 'buttons':buttons}}]
+
+
+def make_check_year_cards(no, today=None):
+    """이전 함수명과의 호환을 위한 첫 페이지 생성 함수."""
+    return [out['textCard']['description'] for out in make_check_history_offset(no, 0, today)]
+
+
+def make_check_duty_report(no, today=None):
+    """법정직무 8번: 최근 5개월. 기존 모든 확인 완료 버튼과 함께 사용."""
+    today = today or datetime.datetime.now()
+    months = []
+    for i in range(5):
+        month_idx = today.year * 12 + today.month - 1 - i
+        year, month = divmod(month_idx, 12)
+        months.append(_month_key(year, month + 1))
+    data = _check_months(no, months)
+    desc = _split_month_cards('최근 5개월 자체점검', months, data, limit=400)
+    # 업체명이 극단적으로 길 경우 400자 이하 카드로 분할하되 버튼은 마지막에 둡니다.
+    return desc
+
+
+
+
+def _inspection_date(raw):
+    """YYYYMMDD/문자열 중 8자리 날짜만 yyyy-mm-dd로 통일."""
+    value = re.sub(r'[^0-9]', '', str(raw or ''))
+    if len(value) >= 8:
+        value = value[:8]
+        try:
+            datetime.datetime.strptime(value, '%Y%m%d')
+            return f'{value[:4]}-{value[4:6]}-{value[6:8]}'
+        except ValueError:
+            pass
+    return '-'
+
+
+def _inspection_fetch(service, params, page_size=100, max_pages=8):
+    """페이지를 빠짐없이 수집. 통신 오류와 빈 결과를 구별."""
+    url = URLS.get(service)
+    if not url:
+        return None, '미설정'
+    items = []
+    signatures = set()
+    for page in range(1, max_pages + 1):
+        arguments = dict(params, pageNo=page, numOfRows=page_size)
+        root = get_api(url, arguments)
+        if root is None or root.findtext('.//resultCode') not in (None, '00'):
+            return None, '조회 오류'
+        batch = root.findall('.//item')
+        # API가 페이지 번호를 무시한다면 같은 첫 페이지를 반복해서 전체 건수로 오판하지 않음.
+        signature = ET.tostring(root.find('.//items'), encoding='unicode') if batch else ''
+        if signature and signature in signatures:
+            return None, '페이지 중복 응답'
+        signatures.add(signature)
+        items.extend(batch)
+        total = root.findtext('.//totalCount')
+        try:
+            total = int(total)
+        except (TypeError, ValueError):
+            total = None
+        if total is not None:
+            if len(items) >= total:
+                return items, None
+            if not batch:
+                return None, '페이지 누락'
+        elif len(batch) < page_size:
+            return items, None
+    return None, '조회 한도 초과'
+
+
+def _inspection_record(item, source):
+    """검사이력 4-3과 안전검사이력 6-1의 서로 다른 XML 필드를 정규화."""
+    date = _inspection_date(_value(item, 'inspctDe', 'inspctDt', default=''))
+    kind = _value(item, 'inspctKindNm', 'inspctKind', default='정보없음')
+    return {
+        'date': date,
+        'kind': kind,
+        'result': _value(item, 'dispWords', 'psexamYn', default='정보없음'),
+        'fail_cd': _value(item, 'failCd', default=''),
+        'source': source,
+        'valid_from': _inspection_date(_value(item, 'applcBeDt', default='')),
+        'valid_to': _inspection_date(_value(item, 'applcEnDt', default='')),
+    }
+
+
+def _inspection_records(no):
+    """전체 이력은 4-3을 우선하고 6-1의 세부 판정/지적코드를 덧붙임."""
+    requests_to_run = [('INSP_HISTORY', {'serviceKey': KEY, 'elevator_no': no})]
+    if URLS.get('INSP_SAFE'):
+        requests_to_run.append(('INSP_SAFE', {'serviceKey': KEY, 'elevator_no': no}))
+    result = {}
+    with ThreadPoolExecutor(max_workers=len(requests_to_run)) as pool:
+        futures = {pool.submit(_inspection_fetch, name, params): name
+                   for name, params in requests_to_run}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                result[name] = future.result()
+            except Exception:
+                result[name] = (None, '조회 오류')
+    history, history_error = result.get('INSP_HISTORY', (None, '미설정'))
+    safe, safe_error = result.get('INSP_SAFE', (None, '미설정'))
+    records = [_inspection_record(it, 'history') for it in history or []]
+    # 같은 검사일·종류의 정보가 여러 건일 수 있으므로 키별 사용 횟수를 관리함.
+    safe_records = [_inspection_record(it, 'safe') for it in safe or []]
+    by_key = {}
+    for row in safe_records:
+        by_key.setdefault((row['date'], row['kind'].replace('검사', '')), []).append(row)
+    for row in records:
+        key = (row['date'], row['kind'].replace('검사', ''))
+        candidates = by_key.get(key, [])
+        if candidates:
+            match = candidates.pop(0)
+            if match['result'] != '정보없음':
+                row['result'] = match['result']
+            row['fail_cd'] = match['fail_cd']
+            if row['valid_from'] == '-':
+                row['valid_from'] = match['valid_from']
+            if row['valid_to'] == '-':
+                row['valid_to'] = match['valid_to']
+    if not records:
+        records = safe_records
+    # 여러 자료원이 같은 검사를 제공할 때 중복표시하지 않음.
+    seen, unique = set(), []
+    for row in records:
+        key = (row['date'], row['kind'], row['result'])
+        if key not in seen:
+            unique.append(row)
+            seen.add(key)
+    unique.sort(key=lambda r: r['date'], reverse=True)
+    errors = []
+    if history is None:
+        errors.append('검사이력 API: ' + str(history_error))
+    if safe is None and URLS.get('INSP_SAFE'):
+        errors.append('안전검사 API: ' + str(safe_error))
+    return unique, errors
+
+
+def _inspection_fail_items(code):
+    if not URLS.get('INSP_FAIL'):
+        return None, '미설정'
+    if not code or code == '-':
+        return None, '지적사항 조회코드 없음'
+    return _inspection_fetch('INSP_FAIL', {
+        'serviceKey': KEY, 'fail_cd': code,
+    }, page_size=100)
+
+
+def _inspection_recent(no):
+    records, errors = _inspection_records(no)
+    recent = records[:2]
+    if not recent:
+        text = '⚠️ 조회된 검사이력이 없습니다.'
+        if errors:
+            text += '\n' + ' / '.join(errors)
+        return [ {'textCard': {'title': '📋 최근 검사이력', 'description': text}} ]
+    lines = ['📋 [최근 검사이력]', '━━━━━━━━━━━━━━']
+    for i, row in enumerate(recent, 1):
+        lines.extend(['', f"{i}. 검사일: {row['date']}",
+                      f"검사종류: {row['kind']}", f"검사결과: {row['result']}"])
+    if recent[0]['valid_to'] != '-':
+        period = (f"{recent[0]['valid_from']} ~ {recent[0]['valid_to']}"
+                  if recent[0]['valid_from'] != '-' else recent[0]['valid_to'])
+        lines.extend(['', f'📅 검사 유효기간: {period}'])
+    # 안전검사 6-1의 코드가 없는 경우 지적사항이 없다고 단정하지 않음.
+    fail_results = []
+    if URLS.get('INSP_FAIL'):
+        codes = [row['fail_cd'] for row in recent if row['fail_cd']]
+        with ThreadPoolExecutor(max_workers=min(2, len(codes)) or 1) as pool:
+            futures = [pool.submit(_inspection_fail_items, code) for code in codes]
+            for f in futures:
+                try:
+                    fail_results.append(f.result())
+                except Exception:
+                    fail_results.append((None, '조회 오류'))
+    any_defects = any(items for items, _ in fail_results if items is not None)
+    complete_check = bool(URLS.get('INSP_FAIL') and URLS.get('INSP_SAFE') and
+                          len(fail_results) == len(recent) and
+                          all(items is not None for items, _ in fail_results))
+    if complete_check and not any_defects:
+        lines.extend(['', '최근 2건: 등록된 지적사항 없음'])
+    elif not URLS.get('INSP_SAFE') or not URLS.get('INSP_FAIL'):
+        lines.extend(['', '※ 지적사항 상세 API 연결 전'])
+    elif fail_results and not complete_check:
+        lines.extend(['', '※ 일부 지적사항 확인 불가'])
+    buttons = [{
+        'action': 'message', 'label': '📜 전체 검사이력',
+        'messageText': f'{no} 전체검사이력 페이지1',
+    }]
+    if any_defects:
+        buttons.append({
+            'action': 'message', 'label': '⚠️ 최근 지적사항',
+            'messageText': f'{no} 최근검사지적사항 페이지1',
+        })
+    if errors:
+        lines.extend(['', '※ 일부 데이터 조회 실패'])
+    description = '\n'.join(lines)
+    return [{'textCard': {'title': '🔍 검사이력 조회',
+                          'description': description[:390], 'buttons': buttons}}]
+
+
+def _inspection_all(no, page):
+    records, errors = _inspection_records(no)
+    if not records:
+        message = '⚠️ 조회된 검사이력이 없습니다.'
+        if errors:
+            message += '\n' + ' / '.join(errors)
+        return [{'simpleText': {'text': message}}]
+    # 1,000자 일반카드에 검사 한 건이 중간에 잘리지 않도록 동적 분할.
+    pages, current = [], []
+    for i, row in enumerate(records, 1):
+        entry = f"{i}. {row['date']} / {row['kind']} / {row['result']}"
+        # 단일 항목 자체가 비정상적으로 길면 결과를 요약하고 별도 식별정보는 유지.
+        if len(entry) > 850:
+            entry = entry[:847] + '...'
+        if current and len('\n'.join(current + [entry])) > 870:
+            pages.append(current)
+            current = []
+        current.append(entry)
+    if current:
+        pages.append(current)
+    total_pages = len(pages)
+    page = min(max(1, page), total_pages)
+    body = '\n'.join([
+        f'📜 [전체 검사이력 {page}/{total_pages}]', '━━━━━━━━━━━━━━',
+        *pages[page - 1],
+    ])
+    result = [{'simpleText': {'text': body}}]
+    buttons = []
+    if page > 1:
+        buttons.append({'action': 'message', 'label': '⬅️ 이전 검사이력',
+                        'messageText': f'{no} 전체검사이력 페이지{page-1}'})
+    if page < total_pages:
+        buttons.append({'action': 'message', 'label': '➡️ 다음 검사이력',
+                        'messageText': f'{no} 전체검사이력 페이지{page+1}'})
+    if buttons:
+        result.append({'textCard': {'title': '검사이력 목록 이동',
+                                    'description': f'총 {len(records)}건',
+                                    'buttons': buttons}})
+    return result
+
+
+def _inspection_recent_defects(no, page=1):
+    if not URLS.get('INSP_SAFE') or not URLS.get('INSP_FAIL'):
+        return [{'simpleText': {'text':'⚠️ 상세 지적사항 API 주소가 설정되지 않았습니다.'}}]
+    records, _ = _inspection_records(no)
+    recent = records[:2]
+    if not recent:
+        return [{'simpleText': {'text':'⚠️ 최근 검사이력 조회 결과가 없습니다.'}}]
+    pairs = []
+    for row in recent:
+        if row['fail_cd']:
+            items, err = _inspection_fail_items(row['fail_cd'])
+            pairs.append((row, items, err))
+        else:
+            pairs.append((row, None, '지적사항 조회코드 없음'))
+    output_lines = ['⚠️ [최근 검사 2건의 지적사항]', '━━━━━━━━━━━━━━']
+    defects_found, uncertain = False, False
+    for row, items, err in pairs:
+        if items is None:
+            uncertain = True
+            output_lines.extend(['', f"📅 {row['date']} ({row['result']})", f'⚠️ {err}'])
+            continue
+        if not items:
+            continue
+        defects_found = True
+        output_lines.extend(['', f"📅 {row['date']} ({row['result']})"])
+        for i, it in enumerate(items, 1):
+            output_lines.append(f"{i}. {_value(it, 'failDesc', default='지적사항 정보 없음')}")
+            inspector_note = _value(it, 'failDescInspector', default='')
+            clause = _value(it, 'standardArticle', default='')
+            if inspector_note:
+                output_lines.append(f'검사원 의견: {inspector_note}')
+            if clause:
+                output_lines.append(f'검사기준: {clause}')
+    if not defects_found and not uncertain:
+        output_lines.append('최근 2건에 등록된 지적사항이 없습니다.')
+    # 긴 지적사항도 버리지 않고 페이지로 나눔(한 응답 최대 일반카드 2개 + 이동버튼).
+    chunks, current = [], ''
+    for line in output_lines:
+        # 원문이 길면 잘라 버리지 않고 연속된 텍스트 블록으로 보존.
+        segments = [line[i:i + 880] for i in range(0, len(line), 880)] or ['']
+        for segment in segments:
+            candidate = current + ('\n' if current else '') + segment
+            if len(candidate) > 900 and current:
+                chunks.append(current)
+                current = segment
+            else:
+                current = candidate
+    if current:
+        chunks.append(current)
+    page_size = 2
+    total_pages = max(1, (len(chunks) + page_size - 1) // page_size)
+    page = min(max(1, page), total_pages)
+    response = [{'simpleText': {'text': chunk}} for chunk in
+                chunks[(page - 1) * page_size:page * page_size]]
+    buttons = []
+    if page > 1:
+        buttons.append({'action': 'message', 'label': '⬅️ 이전 지적사항',
+                        'messageText': f'{no} 최근검사지적사항 페이지{page-1}'})
+    if page < total_pages:
+        buttons.append({'action': 'message', 'label': '➡️ 다음 지적사항',
+                        'messageText': f'{no} 최근검사지적사항 페이지{page+1}'})
+    if buttons:
+        response.append({'textCard': {'title': f'지적사항 {page}/{total_pages}',
+                                      'description': '최근 검사 2건의 지적사항',
+                                      'buttons': buttons}})
+    return response
+
+
+def make_insur_report(no, info):
+    today_ym = datetime.datetime.now().strftime("%Y%m")
+    root = get_api(URLS['INSUR'], {
+        'serviceKey': KEY,
+        'elevator_no': no,
+        'cont_ymd': today_ym,
+    })
+    if root is not None and root.find('.//item') is not None:
+        it = root.find('.//item')
+        return (
+            f"🛡️ [보험 가입 확인]\n━━━━━━━━━━━━━━\n"
+            f"🏢 보험사: {it.findtext('companyNm')}\n"
+            f"⏳ 만료일: {format_dt(it.findtext('contEnDe'))}"
+        )
+    return f"⚠️ {no} 보험 정보 없음"
+
+
+def legacy_ask():
+    try:
+        content = request.get_json()
+        raw_msg = (
+            getattr(g, 'routed_utterance', None)
+            or content['userRequest']['utterance']
+        )
+        utterance = raw_msg.strip().replace(" ", "")
+        all_digits = re.findall(r'\d+', raw_msg)
+        elv_no = all_digits[0][:7] if all_digits else ""
+
+        user_id = content['userRequest'].get('user', {}).get(
+            'id', 'default_user'
+        )
+        is_elevator_request = bool(
+            re.match(r"^\s*\d{7}(?!\d)", raw_msg)
+        )
+
+        # 최대 런바이 계산 시작
+        if "최대런바이" in utterance:
+            runby_states[user_id] = {
+                "step": "max_runby_input"
+            }
+            guide_text = (
+                "📏 [최대 런바이 계산기]\n\n"
+                "아래 6개 항목을 띄어쓰기(공백)로 구분하여 "
+                "순서대로 입력해 주세요.\n\n"
+                "👉 순서: 레일(m) 부품(m) 난간(m) 완충기(mm) "
+                "속도(m/s) 런바이(mm)\n\n"
+                "예시)\n1 2 3 66 1 170"
+            )
+            return kakao_res([{
+                "simpleText": {"text": guide_text}
+            }])
+
+        # 다시 계산하기 메뉴
+        if utterance == "다시계산하기":
+            saved = runby_states.get(user_id, {})
+            if saved:
+                saved["step"] = "recalculate_menu"
+                runby_states[user_id] = saved
+            else:
+                runby_states[user_id] = {
+                    "step": "recalculate_menu"
+                }
+
+            guide_text = (
+                "📏 [최대 런바이 계산기]\n\n"
+                "다시 계산할 항목을 선택해 주세요.\n\n"
+                "⚠️ 계산 중에도 7자리 고유번호를 입력하면 조회할 수 있습니다.\n"
+                "계산기 입력 상태를 종료하려면 '❌ 취소'를 눌러 주세요."
+            )
+            return kakao_res([{
+                "basicCard": {
+                    "title": "📏 최대 런바이 계산기",
+                    "description": guide_text,
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "📏 최대 런바이 계산",
+                            "messageText": "최대런바이계산",
+                        },
+                        {
+                            "action": "message",
+                            "label": "📐 기타 부품 계산",
+                            "messageText": "기타 부품 계산",
+                        },
+                        {
+                            "action": "message",
+                            "label": "❌ 취소",
+                            "messageText": "계산기취소",
+                        },
+                    ],
+                }
+            }])
+
+        if utterance == "최대런바이계산":
+            saved = runby_states.get(user_id, {})
+            saved["step"] = "max_runby_input"
+            runby_states[user_id] = saved
+            guide_text = (
+                "📏 [최대 런바이 계산기]\n\n"
+                "아래 6개 항목을 띄어쓰기(공백)로 구분하여 "
+                "순서대로 입력해 주세요.\n\n"
+                "👉 순서: 레일(m) 부품(m) 난간(m) 완충기(mm) "
+                "속도(m/s) 런바이(mm)\n\n"
+                "예시)\n1 2 3 66 1 170"
+            )
+            return kakao_res([{
+                "simpleText": {"text": guide_text}
+            }])
+
+        # 계산기 종료
+        if utterance == "계산기취소":
+            runby_states.pop(user_id, None)
+            return kakao_res([{
+                "basicCard": {
+                    "title": "🏠 계산기 종료",
+                    "description": (
+                        "최대 런바이 계산기를 종료했습니다.\n\n"
+                        "이제 7자리 승강기 고유번호를 입력하면 "
+                        "기존 조회 기능을 사용할 수 있습니다."
+                    ),
+                    "buttons": [{
+                        "action": "message",
+                        "label": "🏠 처음으로",
+                        "messageText": "처음",
+                    }],
+                }
+            }])
+
+        # 기타 부품 계산 메뉴
+        if utterance == "기타부품계산":
+            saved = runby_states.get(user_id, {})
+            if "buffer_m" not in saved or "speed" not in saved:
+                return kakao_res([{
+                    "simpleText": {
+                        "text": (
+                            "⚠️ 먼저 최대 런바이 계산을 완료해 주세요.\n\n"
+                            "'최대런바이'를 입력하면 계산을 시작할 수 있습니다."
+                        )
+                    }
+                }])
+
+            runby_states[user_id]["step"] = "other_menu"
+            return kakao_res([{
+                "basicCard": {
+                    "title": "📐 [기타 부품 계산]",
+                    "description": "계산할 항목을 선택해 주세요.",
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "① 피난공간 높이",
+                            "messageText": "기타계산1",
+                        },
+                        {
+                            "action": "message",
+                            "label": "② 파이널 리미트 캠",
+                            "messageText": "기타계산2",
+                        },
+                    ],
+                }
+            }])
+
+        # 최대 런바이 입력 처리
+        if (
+            runby_states.get(user_id, {}).get("step") == "max_runby_input"
+            and not is_elevator_request
+        ):
+            raw_values = raw_msg.strip().split()
+            if len(raw_values) != 6:
+                return kakao_res([{
+                    "simpleText": {
+                        "text": (
+                            "⚠️ 입력 형식이 올바르지 않습니다.\n\n"
+                            "6개 수치를 띄어쓰기로 구분하여 다시 입력해 주세요.\n\n"
+                            "👉 순서: 레일(m) 부품(m) 난간(m) 완충기(mm) "
+                            "속도(m/s) 런바이(mm)\n\n"
+                            "예시) 1 2 3 66 1 170"
+                        )
+                    }
+                }])
+
+            try:
+                rail = float(raw_values[0])
+                part = float(raw_values[1])
+                handrail = float(raw_values[2])
+                buffer_mm = float(raw_values[3])
+                v = float(raw_values[4])
+                runby_mm = float(raw_values[5])
+
+                values = (rail, part, handrail, buffer_mm, v, runby_mm)
+                if min(values) < 0 or not all(
+                    math.isfinite(x) for x in values
+                ):
+                    raise ValueError
+
+                buffer_m = buffer_mm / 1000.0
+                runby_m = runby_mm / 1000.0
+                speed_term = 0.035 * (v ** 2)
+
+                rail_result_m = (
+                    rail - runby_m - buffer_m - (0.1 + speed_term)
+                )
+                part_result_m = (
+                    part - runby_m - buffer_m - (0.5 + speed_term)
+                )
+                handrail_result_m = (
+                    handrail - runby_m - buffer_m - (0.3 + speed_term)
+                )
+
+                runby_states[user_id] = {
+                    "step": "max_runby_result",
+                    "buffer_mm": buffer_mm,
+                    "buffer_m": buffer_m,
+                    "runby_mm": runby_mm,
+                    "runby_m": runby_m,
+                    "speed": v,
+                    "rail": rail,
+                    "part": part,
+                    "handrail": handrail,
+                }
+
+                rail_result_mm = round(rail_result_m * 1000)
+                part_result_mm = round(part_result_m * 1000)
+                handrail_result_mm = round(handrail_result_m * 1000)
+
+                def judge_runby(result_mm):
+                    status = (
+                        "✅ 적합" if result_mm >= runby_mm else "❌ 불량"
+                    )
+                    warning = (
+                        "\n⚠️ 계산값 100mm 이하 경고"
+                        if result_mm <= 100 else ""
+                    )
+                    return status + warning
+
+                overall_ok = all(
+                    value >= runby_mm
+                    for value in (
+                        rail_result_mm,
+                        part_result_mm,
+                        handrail_result_mm,
+                    )
+                )
+                overall_status = "✅ 양호" if overall_ok else "❌ 불합"
+
+                result_text = (
+                    "📏 [최대 런바이 계산 결과]\n\n"
+                    f"입력 런바이(B): {runby_mm:g} mm\n\n"
+                    "🔹 레일\n"
+                    f"{rail:g} - {runby_mm:g}/1000 - {buffer_mm:g}/1000 "
+                    f"- (0.1 + 0.035*{v:g}^2) = {rail_result_mm:.0f} mm\n"
+                    f"{judge_runby(rail_result_mm)}\n\n"
+                    "🔹 부품(A·B)\n"
+                    f"{part:g} - {runby_mm:g}/1000 - {buffer_mm:g}/1000 "
+                    f"- (0.5 + 0.035*{v:g}^2) = {part_result_mm:.0f} mm\n"
+                    f"{judge_runby(part_result_mm)}\n\n"
+                    "🔹 난간(D)\n"
+                    f"{handrail:g} - {runby_mm:g}/1000 - {buffer_mm:g}/1000 "
+                    f"- (0.3 + 0.035*{v:g}^2) = {handrail_result_mm:.0f} mm\n"
+                    f"{judge_runby(handrail_result_mm)}\n\n"
+                    f"🏁 최종 판정: {overall_status}"
+                )
+
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "📏 최대 런바이 계산 결과",
+                        "description": result_text,
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "🔄 다시 계산하기",
+                                "messageText": "다시 계산하기",
+                            },
+                            {
+                                "action": "message",
+                                "label": "📐 기타 부품 계산",
+                                "messageText": "기타 부품 계산",
+                            },
+                        ],
+                    }
+                }])
+            except (ValueError, TypeError):
+                return kakao_res([{
+                    "simpleText": {
+                        "text": (
+                            "⚠️ 숫자 입력을 확인해 주세요.\n\n"
+                            "예시) 1 2 3 66 1 170"
+                        )
+                    }
+                }])
+
+        # 피난공간 높이 계산 시작
+        if utterance == "기타계산1":
+            if (
+                user_id not in runby_states
+                or "buffer_m" not in runby_states[user_id]
+            ):
+                return kakao_res([{
+                    "simpleText": {
+                        "text": "⚠️ 먼저 최대 런바이 계산을 완료해 주세요."
+                    }
+                }])
+
+            runby_states[user_id]["step"] = "other1_input"
+            return kakao_res([{
+                "simpleText": {
+                    "text": (
+                        "📐 [피난공간 높이 계산]\n\n"
+                        "피난공간의 측정값을 입력해 주세요.\n"
+                        "👉 측정값은 m 단위로 입력해 주세요.\n\n"
+                        "예시) 4"
+                    )
+                }
+            }])
+
+        # 피난공간 높이 입력 처리
+        if (
+            runby_states.get(user_id, {}).get("step") == "other1_input"
+            and not is_elevator_request
+        ):
+            try:
+                measured_m = float(raw_msg.strip())
+                saved = runby_states[user_id]
+                result_m = (
+                    measured_m
+                    - saved["runby_m"]
+                    - saved["buffer_m"]
+                    - (0.035 * (saved["speed"] ** 2))
+                )
+
+                if result_m < 2.0:
+                    guidance = (
+                        "⚠️ 계산 높이가 2 m 미만입니다.\n"
+                        "해당 피난공간은 **웅크린 자세로 피난할 수 있도록 "
+                        "0.5 m × 0.7 m 이상의 공간**을 확보해야 합니다."
+                    )
+                else:
+                    guidance = (
+                        "✅ 계산 높이가 2 m 이상입니다.\n"
+                        "해당 피난공간은 **서 있는 자세로 피난할 수 있도록 "
+                        "0.4 m × 0.5 m 이상의 공간**을 확보해야 합니다."
+                    )
+
+                runby_states[user_id]["step"] = "max_runby_result"
+                result_text = (
+                    "📐 [피난공간 높이 계산 결과]\n\n"
+                    "계산식\n"
+                    f"{measured_m:g} - {saved['runby_mm']:g}/1000 "
+                    f"- {saved['buffer_mm']:g}/1000 "
+                    f"- (0.035*{saved['speed']:g}^2) = {result_m:.3f} m\n\n"
+                    f"{guidance}"
+                )
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "📐 피난공간 높이 계산 결과",
+                        "description": result_text,
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "📐 기타 부품 계산",
+                                "messageText": "기타 부품 계산",
+                            },
+                            {
+                                "action": "message",
+                                "label": "🔄 다시 계산하기",
+                                "messageText": "다시 계산하기",
+                            },
+                        ],
+                    }
+                }])
+            except (ValueError, TypeError):
+                return kakao_res([{
+                    "simpleText": {
+                        "text": "⚠️ 숫자로 입력해 주세요.\n예시) 4"
+                    }
+                }])
+
+        # 파이널 리미트 캠 계산 시작
+        if utterance == "기타계산2":
+            if (
+                user_id not in runby_states
+                or "buffer_m" not in runby_states[user_id]
+            ):
+                return kakao_res([{
+                    "simpleText": {
+                        "text": "⚠️ 먼저 최대 런바이 계산을 완료해 주세요."
+                    }
+                }])
+
+            runby_states[user_id]["step"] = "other2_input"
+            return kakao_res([{
+                "simpleText": {
+                    "text": (
+                        "📐 [파이널 리미트 캠 길이 계산]\n\n"
+                        "① 리미트 상부에서 캠 끝단까지의 거리를 측정해 주세요.\n"
+                        "최대 런바이 계산에서 입력한 런바이를 자동으로 사용합니다.\n\n"
+                        "👉 입력: 리미트 상부~캠 끝단(mm)\n\n"
+                        "예시) 350"
+                    )
+                }
+            }])
+
+        # 파이널 리미트 캠 입력 처리
+        if (
+            runby_states.get(user_id, {}).get("step") == "other2_input"
+            and not is_elevator_request
+        ):
+            raw_values = raw_msg.strip().split()
+            if len(raw_values) != 1:
+                return kakao_res([{
+                    "simpleText": {
+                        "text": (
+                            "⚠️ 입력 형식이 올바르지 않습니다.\n\n"
+                            "캠 측정거리 1개를 mm 단위로 입력해 주세요.\n\n"
+                            "👉 입력: 리미트 상부~캠 끝단(mm)\n\n"
+                            "예시) 350"
+                        )
+                    }
+                }])
+
+            try:
+                limit_to_cam_mm = float(raw_values[0])
+                counterweight_runby_mm = runby_states[user_id]["runby_mm"]
+                if limit_to_cam_mm < 0 or not math.isfinite(limit_to_cam_mm):
+                    raise ValueError
+
+                saved = runby_states[user_id]
+                speed_term_mm = 0.035 * (saved["speed"] ** 2) * 1000
+                result_mm = (
+                    limit_to_cam_mm
+                    - counterweight_runby_mm
+                    - saved["buffer_mm"]
+                    - speed_term_mm
+                )
+                max_counterweight_runby_mm = (
+                    limit_to_cam_mm - saved["buffer_mm"] - speed_term_mm
+                )
+
+                if result_mm < 0:
+                    judgment = (
+                        "❌ **부적합**\n"
+                        "캠의 여유 길이가 확보되지 않습니다. "
+                        "파이널 리미트가 캠을 벗어날 가능성이 있으므로 "
+                        "확인이 필요합니다."
+                    )
+                elif result_mm <= 10:
+                    judgment = (
+                        "⚠️ **적합(주의)**\n"
+                        "캠의 여유 길이가 10 mm 이하로 짧습니다. "
+                        "캠의 여유 길이가 충분한지 확인해 주세요."
+                    )
+                else:
+                    judgment = (
+                        "✅ **적합**\n"
+                        "캠의 여유 길이가 충분히 확보되어 있습니다."
+                    )
+
+                runby_states[user_id]["step"] = "max_runby_result"
+                result_text = (
+                    "📐 [파이널 리미트 캠 길이 계산 결과]\n\n"
+                    "계산식\n"
+                    f"{limit_to_cam_mm:g} - {counterweight_runby_mm:g} "
+                    f"- {saved['buffer_mm']:g} "
+                    f"- ((0.035*{saved['speed']:g}^2)*1000) "
+                    f"= {result_mm:.0f} mm\n\n"
+                    f"{judgment}\n\n"
+                    "최대 균형추 런바이\n"
+                    f"{counterweight_runby_mm:.0f} + {result_mm:.0f} "
+                    f"= {max_counterweight_runby_mm:.0f} mm"
+                )
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "📐 파이널 리미트 캠 길이 계산 결과",
+                        "description": result_text,
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "📐 기타 부품 계산",
+                                "messageText": "기타 부품 계산",
+                            },
+                            {
+                                "action": "message",
+                                "label": "🔄 다시 계산하기",
+                                "messageText": "다시 계산하기",
+                            },
+                        ],
+                    }
+                }])
+            except (ValueError, TypeError):
+                return kakao_res([{
+                    "simpleText": {
+                        "text": "⚠️ 숫자로 입력해 주세요.\n예시) 350"
+                    }
+                }])
+
+        # 설치 연도 입력 처리
+        if utterance.isdigit() and len(utterance) == 4:
+            install_year = int(utterance)
+            y15 = install_year + 15
+            y16 = install_year + 16
+            y19 = y16 + 3
+            y22 = y19 + 3
+            y25 = install_year + 25
+
+            report = (
+                f"📅 [정밀검사 대상 기간 확인]\n"
+                f"🏗️ 승강기 설치 연도: {install_year}년\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"❓ 왜 {y16}년차가 정밀안전검사인가요?\n"
+                f"법적으로 '만 15년이 완전히 지난 날'부터 "
+                f"대상이 되기 때문입니다.\n\n"
+                f"• {y15}년 검사 신청일에는 아직 15년이 채워지지 않아 "
+                f"'정기검사'를 받습니다.\n"
+                f"• 설치한 날로부터 15년이 지난 **{y16}년 접수분**부터 "
+                f"첫 번째 '정밀안전검사'가 시작됩니다.\n\n"
+                f"📋 [연도별 검사 스케줄]\n"
+                f"정밀안전검사는 첫 검사 이후 '3년 주기'로 실시합니다.\n"
+                f"1️⃣ 제1차 정밀검사 : {y16}년\n"
+                f"2️⃣ 제2차 정밀검사 : {y19}년 (3년 후)\n"
+                f"3️⃣ 제3차 정밀검사 : {y22}년 (3년 후)\n\n"
+                f"🚨 [노후 승강기 특별관리]\n"
+                f"설치 후 {y25}년(25년 경과)부터는 안전을 위해 "
+                f"검사 주기가 '6개월'로 짧아집니다.\n\n"
+                f"📍 25년 이후 검사 방식\n"
+                f"노후 승강기는 정밀검사 주기(3년)에 맞춰 "
+                f"다음과 같이 검사를 받게 됩니다.\n"
+                f"• 정기검사 : 총 5회 (6개월마다 실시)\n"
+                f"• 정밀검사 : 총 1회 (3년마다 실시)\n"
+                f"6개월마다 정기검사를 받다가, "
+                f"3년째 되는 해에 정밀안전검사를 받습니다.\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"🔍 정확한 설치일자는 '제원 조회'에서 확인하세요!"
+            )
+            return kakao_res([{
+                "basicCard": {
+                    "description": report,
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "🛠️ 설치 품목 확인",
+                            "messageText": "설치 품목 확인",
+                        },
+                        {
+                            "action": "message",
+                            "label": "🗓️ 정밀연장 신청 안내",
+                            "messageText": "정밀연장 신청 안내",
+                        },
+                    ],
+                }
+            }])
+
+        # 선임 자격 진단
+        if "선임자격" in utterance or "자격진단" in utterance:
+            if "진단_" not in utterance and "결과" not in utterance:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🏅 [자격진단] 1단계",
+                        "description": (
+                            "화재 시 대피용으로 지정된\n"
+                            "'피난용 엘리베이터'를 관리하시나요?"
+                        ),
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "예 (피난용 있음)",
+                                "messageText": "자격요건_피난용_결과",
+                            },
+                            {
+                                "action": "message",
+                                "label": "아니오",
+                                "messageText": "자격요건_진단_16층",
+                            },
+                        ],
+                    }
+                }])
+
+        if "자격요건_진단_16층" in utterance:
+            return kakao_res([{
+                "basicCard": {
+                    "title": "🏅 [자격진단] 2단계",
+                    "description": (
+                        "건축물의 '지상층'이 16층 이상인가요?\n"
+                        "(※ 지하층은 제외합니다)"
+                    ),
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "예 (지상 16층 이상)",
+                            "messageText": "자격요건_다중이용_결과",
+                        },
+                        {
+                            "action": "message",
+                            "label": "아니오",
+                            "messageText": "자격요건_진단_문화집회",
+                        },
+                    ],
+                }
+            }])
+
+        diag_flow = [
+            (
+                "문화집회",
+                "문화 및 집회시설에 해당하시나요?\n(동물원 및 식물원 제외)",
+                "종교",
+            ),
+            ("종교", "종교시설에 해당하시나요?", "판매"),
+            ("판매", "판매시설에 해당하시나요?", "여객"),
+            ("여객", "운수시설 중 여객용 시설에 해당하시나요?", "종합병원"),
+            ("종합병원", "의료시설 중 종합병원에 해당하시나요?", "관광숙박"),
+            ("관광숙박", "숙박시설 중 관광숙박시설에 해당하시나요?", "일반결정"),
+        ]
+        for current, quest, next_step in diag_flow:
+            if f"자격요건_진단_{current}" in utterance:
+                target_next = (
+                    "자격요건_일반_결과"
+                    if next_step == "일반결정"
+                    else f"자격요건_진단_{next_step}"
+                )
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🏅 용도 확인",
+                        "description": quest,
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "예",
+                                "messageText": "자격요건_진단_면적",
+                            },
+                            {
+                                "action": "message",
+                                "label": "아니오",
+                                "messageText": target_next,
+                            },
+                        ],
+                    }
+                }])
+
+        if "자격요건_진단_면적" in utterance:
+            return kakao_res([{
+                "basicCard": {
+                    "title": "📐 바닥면적 확인",
+                    "description": (
+                        "해당 용도로 쓰는 바닥면적의 합계가\n"
+                        "5,000제곱미터 이상인가요?"
+                    ),
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "예 (5,000㎡ 이상)",
+                            "messageText": "자격요건_다중이용_결과",
+                        },
+                        {
+                            "action": "message",
+                            "label": "아니오 (5,000㎡ 미만)",
+                            "messageText": "자격요건_일반_결과",
+                        },
+                    ],
+                }
+            }])
+
+        if "자격요건_피난용_결과" in utterance:
+            desc = (
+                "🚨 [피난용 엘리베이터 자격 안내]\n━━━━━━━━━━━━━━\n"
+                "해당 승강기는 화재 시 인명 구조용으로 사용되므로 "
+                "**일반 교육만으로는 선임이 불가능**합니다.\n\n"
+                "✅ **1. 필수 자격 요건 (중 하나)**\n"
+                "1️⃣ 자격증: 승강기·기계·전기·전자 분야 기능사 이상\n"
+                "2️⃣ 학위: 관련 학과(기계·전기 등) 전문학사 이상 졸업\n"
+                "3️⃣ 경력: 승강기 관련 분야 6개월 이상의 실무 경력\n"
+                "(설계·제조·설치·인증·검사·유지관리 등)\n\n"
+                "✅ **2. 필수 교육 이수**\n"
+                "한국승강기안전공단에서 실시하는 "
+                "**'피난용 승강기 관리교육'**"
+            )
+            return kakao_res([{
+                "basicCard": {
+                    "title": "피난용 자격 진단 결과",
+                    "description": desc,
+                    "buttons": [
+                        {
+                            "action": "webLink",
+                            "label": "✍️ 선임 신고하러 가기",
+                            "webLinkUrl": "https://minwon.koelsa.or.kr/",
+                        },
+                        {
+                            "action": "webLink",
+                            "label": "❓ 선임 신청 방법 안내",
+                            "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS",
+                        },
+                    ],
+                }
+            }])
+
+        if "자격요건_다중이용_결과" in utterance:
+            desc = (
+                "🏙️ [다중이용 건축물 자격 안내]\n━━━━━━━━━━━━━━\n"
+                "16층 이상 또는 다중이용시설의 안전관리자는 "
+                "**기술적인 기본 역량**이 필요합니다.\n\n"
+                "✅ **필수 자격 요건 (중 하나)**\n"
+                "1️⃣ 승강기ㆍ기계ㆍ전기ㆍ전자 분야 기능사 이상의 자격증\n"
+                "2️⃣ 승강기ㆍ기계ㆍ전기ㆍ전자 학과나 그 밖에 유사한 "
+                "전문 학사 졸업 학위\n"
+                "3️⃣ 6개월 이상의 설계ㆍ제조ㆍ설치ㆍ인증ㆍ검사ㆍ유지관리 경력\n"
+                "4️⃣한국승강기안전공단에서 실시하는 "
+                "**'승강기 기술 기본 교육'** 이수\n\n"
+                "✅ **2. 필수 교육 이수**\n"
+                "한국승강기안전공단에서 실시하는 "
+                "**'비상구출운전 승강기관리교육'**"
+            )
+            return kakao_res([{
+                "basicCard": {
+                    "title": "다중이용 자격 진단 결과",
+                    "description": desc,
+                    "buttons": [
+                        {
+                            "action": "webLink",
+                            "label": "✍️ 선임 신고하러 가기",
+                            "webLinkUrl": "https://minwon.koelsa.or.kr/",
+                        },
+                        {
+                            "action": "webLink",
+                            "label": "❓ 선임 신청 방법 안내",
+                            "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS",
+                        },
+                    ],
+                }
+            }])
+
+        if "자격요건_일반_결과" in utterance:
+            desc = (
+                "🏠 [일반 건축물 자격 안내]\n━━━━━━━━━━━━━━\n"
+                "해당 건물은 가장 보편적인 자격 요건이 적용됩니다.\n\n"
+                "✅ **선임 가능 조건**\n"
+                "1️⃣ 승강기 관리 교육 이수\n"
+                "2️⃣ 승강기의 제조ㆍ설치 및 유지관리 등에 관한 "
+                "기술교육 이수/직무 교육 이수\n"
+                "3️⃣ 안전관리기술자로 하여금 행정안전부장관이 실시하는 "
+                "승강기 안전관리에 관한 직무교육 이수\n"
+                "4️⃣ 한국승강기안전공단에서 실시하는 **'승강기 관리 교육'**"
+            )
+            return kakao_res([{
+                "basicCard": {
+                    "title": "일반 자격 진단 결과",
+                    "description": desc,
+                    "buttons": [
+                        {
+                            "action": "webLink",
+                            "label": "✍️ 선임 신고하러 가기",
+                            "webLinkUrl": "https://minwon.koelsa.or.kr/",
+                        },
+                        {
+                            "action": "webLink",
+                            "label": "❓ 선임 신청 방법 안내",
+                            "webLinkUrl": "https://youtu.be/gtMaxkUw4cc?si=00Rl407_MMy1iNZS",
+                        },
+                    ],
+                }
+            }])
+
+        # 고유번호 기반 서비스
+        if is_elevator_request:
+            info = get_info(elv_no)
+            cmd = utterance.replace(elv_no, "").strip()
+
+            if "안전관리자" in cmd:
+                root = get_api(URLS['SAFE'], {
+                    'serviceKey': KEY,
+                    'elevator_no': elv_no,
+                })
+                header = (f"✅ [안전관리자 선임 현황]\n"
+                          f"건물명: {info['buldNm']}\n━━━━━━━━━━━━━━")
+                entries = []
+                if root is not None:
+                    items = root.findall('.//item')
+                    for idx, m in enumerate(items, 1):
+                        name = _value(m, 'safeMngrNm', 'shuttleMngrNm', default='성함미상')
+                        appointed = _value(m, 'appointDt', default='정보없음')
+                        end_de = _value(m, 'valdEndDt', 'eduEndDe', default='정보없음')
+                        entries.append(
+                            f"👤 {idx}. 성함: {name}\n"
+                            f"📅 선임일: {format_dt(appointed)}\n"
+                            f"🎓 만료일: {format_dt(end_de)}"
+                        )
+                else:
+                    entries = ['⚠️ 통신 지연으로 정보를 불러올 수 없습니다.']
+                if not entries:
+                    entries = ['⚠️ 등록된 안전관리자 정보가 없습니다.']
+                cards, current = [], header
+                for entry in entries:
+                    next_text = current + '\n\n' + entry
+                    if len(next_text) > 390 and current != header:
+                        cards.append(current)
+                        current = header + '\n\n' + entry
+                    else:
+                        current = next_text
+                cards.append(current)
+                buttons = [
+                    {"action": "message", "label": "⏰ 선임 기한 안내",
+                     "messageText": "언제까지 선임해야 하나요"},
+                    {"action": "message", "label": "🎓 교육 이수 기준",
+                     "messageText": "교육은 언제까지 받나요"},
+                    {"action": "message", "label": "📋 안전관리자 직무 조회",
+                     "messageText": f"{elv_no} 법정직무조회1"},
+                ]
+                outputs = []
+                for ix, card_text in enumerate(cards):
+                    card = {"title": "⚖️ 법적 의무사항 이행 확인",
+                            "description": card_text}
+                    if ix == len(cards) - 1:
+                        card["buttons"] = buttons
+                    outputs.append({"textCard": card})
+                return kakao_res(outputs)
+
+            if "보험점검조회" in cmd:
+                return kakao_res([{"basicCard": {
+                    "title": "보험·자체점검 조회",
+                    "description": f"🏢 {info['buldNm']}\n조회할 항목을 선택하세요.",
+                    "buttons": [
+                        {"action": "message", "label": "🛡️ 보험 가입 현황",
+                         "messageText": f"{elv_no} 보험가입확인"},
+                        {"action": "message", "label": "🛠️ 자체점검 이력",
+                         "messageText": f"{elv_no} 자체점검확인"},
+                        {"action": "message", "label": "📜 보험·점검 법령",
+                         "messageText": f"{elv_no} 보험및점검"},
+                    ]
+                }}])
+
+            if "보험및점검" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "📜 보험·점검 관련 법령",
+                        "description": "궁금하신 항목을 선택해주세요.",
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "🛡️ 보험 가입 필수인가요",
+                                "messageText": f"{elv_no} 보험질문",
+                            },
+                            {
+                                "action": "message",
+                                "label": "🛠️ 자체점검 필수인가요",
+                                "messageText": f"{elv_no} 점검질문",
+                            },
+                            {
+                                "action": "message",
+                                "label": " 🏛️공단의 역활 안내",
+                                "messageText": "공단의 역활 안내",
+                            },
+                        ],
+                    }
+                }])
+
+            if "보험질문" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛡️ 보험 가입 필수인가요",
+                        "description": (
+                            "승강기 안전관리법 제30조에 따라 "
+                            "이용자 보호를 위한 보험 가입은 의무 사항입니다.\n"
+                            "━━━━━━━━━━━━━━\n"
+                            "📍 가입 대상 및 범위\n"
+                            "• 승객용·화물용·ES 등 모든 기종\n"
+                            "• 휴지(운행중지) 및 불합격 승강기 포함\n"
+                            "(사고 발생 시 배상을 위해 예외 없이 가입)"
+                        ),
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "🔍 보험 가입 여부 조회",
+                                "messageText": f"{elv_no} 보험가입확인",
+                            },
+                        ],
+                    }
+                }])
+
+            if "보험가입" in cmd or "보험확인" in cmd:
+                root = get_api(URLS['BULD'], {
+                    'serviceKey': KEY,
+                    'elevator_no': elv_no,
+                    'numOfRows': 999,
+                })
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = (
+                        int(re.search(r'페이지(\d+)', cmd).group(1))
+                        if "페이지" in cmd else 1
+                    )
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        btns = [{
+                            "action": "message",
+                            "label": (
+                                f"{(it.findtext('installationPlace') or '-').strip()}"
+                                f"({it.findtext('elevatorNo')})"
+                            ),
+                            "messageText": (
+                                f"{it.findtext('elevatorNo')} 보험결과"
+                            ),
+                        } for it in display[i:i + 3]]
+                        cards.append({
+                            "title": f"🛡️ 보험 확인 ({start + i + 1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns,
+                        })
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 보기",
+                                "messageText": (
+                                    f"{elv_no} 보험확인 페이지{page + 1}"
+                                ),
+                            }],
+                        })
+                return kakao_res([{
+                    "carousel": {"type": "basicCard", "items": cards}
+                }])
+
+            if "보험결과" in cmd:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛡️ 보험 가입 여부 조회",
+                        "description": make_insur_report(elv_no, info),
+                    }
+                }])
+
+            if "점검질문" in cmd:
+                check_desc = (
+                    "🛠️ [승강기 자체점검 안내]\n"
+                    "매월 1회 이상 안전 점검은 필수입니다!\n"
+                    "━━━━━━━━━━━━━━\n"
+                    "🛠️ 월 1회 점검 및 결과 등록\n"
+                    "매월 최소 1회 자체점검 후, 결과를 "
+                    "'국가승강기정보센터'에 반드시 입력해야 합니다.\n\n"
+                    "✅ 유지관리업체 대행 가능\n"
+                    "직접 점검이 어려운 경우 전문업체 대행이 가능합니다.\n\n"
+                    "🚨 결함 발견 시 즉시 조치\n"
+                    "결함 시 즉시 운행을 중지하고, "
+                    "보수 완료 전까지 운행해서는 안 됩니다.\n\n"
+                    "💡 위반 시 주의사항\n"
+                    "미점검 또는 허위 입력 시 과태료 등 행정 처분 대상이 됩니다."
+                )
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛠️ 자체점검 필수인가요?",
+                        "description": check_desc,
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "🔍 최근 점검 일지 조회",
+                                "messageText": f"{elv_no} 자체점검확인",
+                            },
+                        ],
+                    }
+                }])
+
+            if "자체점검" in cmd:
+                root = get_api(URLS['BULD'], {
+                    'serviceKey': KEY,
+                    'elevator_no': elv_no,
+                    'numOfRows': 999,
+                })
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = (
+                        int(re.search(r'페이지(\d+)', cmd).group(1))
+                        if "페이지" in cmd else 1
+                    )
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        btns = [{
+                            "action": "message",
+                            "label": (
+                                f"{(it.findtext('installationPlace') or '-').strip()}"
+                                f"({it.findtext('elevatorNo')})"
+                            ),
+                            "messageText": (
+                                f"{it.findtext('elevatorNo')} 결과확인"
+                            ),
+                        } for it in display[i:i + 3]]
+                        cards.append({
+                            "title": f"🛠️ 점검 확인 ({start + i + 1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns,
+                        })
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 보기",
+                                "messageText": (
+                                    f"{elv_no} 자체점검 페이지{page + 1}"
+                                ),
+                            }],
+                        })
+                return kakao_res([{
+                    "carousel": {"type": "basicCard", "items": cards}
+                }])
+
+            if "결과확인" in cmd:
+                match = re.search(r'시작\s*(\d+)', cmd)
+                offset = int(match.group(1)) if match else 0
+                return kakao_res(make_check_history_offset(elv_no, offset))
+
+            # 검사이력은 기존 고유번호 조회 및 상세제원 경로에서 진입.
+            # 긴 분기명을 먼저 검사해 '검사이력조회'와 혼동하지 않게 함.
+            if "최근검사지적사항" in cmd:
+                match = re.search(r'페이지\s*(\d+)', cmd)
+                page = int(match.group(1)) if match else 1
+                return kakao_res(_inspection_recent_defects(elv_no, page))
+
+            if "전체검사이력" in cmd:
+                match = re.search(r'페이지\s*(\d+)', cmd)
+                page = int(match.group(1)) if match else 1
+                return kakao_res(_inspection_all(elv_no, page))
+
+            if "검사이력조회" in cmd or "검사이력확인" in cmd:
+                return kakao_res(_inspection_recent(elv_no))
+
+            if "호기정보" in utterance:
+                root = get_api(URLS['BULD'], {
+                    'serviceKey': KEY,
+                    'elevator_no': elv_no,
+                    'numOfRows': 999,
+                })
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = (
+                        int(re.search(r'페이지(\d+)', utterance).group(1))
+                        if "페이지" in utterance else 1
+                    )
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        sub = display[i:i + 3]
+                        btns = [{
+                            "action": "message",
+                            "label": (
+                                f"{(it.findtext('installationPlace') or '-').strip()}"
+                                f"({it.findtext('elevatorNo')})"
+                            ),
+                            "messageText": (
+                                f"{it.findtext('elevatorNo')} 조회제원"
+                            ),
+                        } for it in sub]
+                        cards.append({
+                            "title": f"🔢 리스트 ({start + i + 1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns,
+                        })
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 15개 보기",
+                                "messageText": (
+                                    f"{elv_no} 호기정보 페이지{page + 1}"
+                                ),
+                            }],
+                        })
+                    return kakao_res([{
+                        "carousel": {"type": "basicCard", "items": cards}
+                    }])
+
+            if "조회제원" in utterance:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": f"⚙️ {elv_no} 호기 상세제원",
+                        "description": make_spec_report(elv_no, info),
+                        "buttons": [
+                            {
+                                "action": "message",
+                                "label": "📅 검사 적용 시점 확인",
+                                "messageText": "연도계산",
+                            },
+                            {
+                                "action": "message",
+                                "label": "📋 검사이력 조회",
+                                "messageText": f"{elv_no} 검사이력조회",
+                            },
+                        ],
+                    }
+                }])
+
+            check_titles = [
+                "",
+                "기계실/제어반 잠금 확인",
+                "기계실 온도/환기 확인",
+                "버튼 작동상태 확인",
+                "법정 부착물 확인",
+                "비상통화장치 확인",
+                "비상열쇠 보관 확인",
+            ]
+            check_descs = [
+                "",
+                (
+                    "기계실 또는 제어반 잠금 상태\n\n"
+                    "기계실이 있는 경우 출입문 잠금을 확인하세요. "
+                    "MRL은 제어반 닫힘 상태를 확인합니다."
+                ),
+                (
+                    "기계실 온도 및 환기장치\n\n"
+                    "기계실 온도는 40도 이하를 유지해야 합니다."
+                ),
+                (
+                    "호출 및 등록버튼 작동 상태\n\n"
+                    "내외부 버튼 파손 및 작동 여부를 확인하세요."
+                ),
+                (
+                    "표준부착물 부착 상태\n\n"
+                    "검사합격증과 고유번호 7자리 훼손 여부를 확인하세요."
+                ),
+                (
+                    "비상통화장치 작동 상태\n\n"
+                    "갇힘 사고 시 외부와 연락 가능한지 체크하세요."
+                ),
+                (
+                    "비상열쇠 관리 상태\n\n"
+                    "지정된 위치에 비상열쇠가 보관 중인지 확인하세요."
+                ),
+            ]
+            bad_descs = [
+                "",
+                "🚨 기계실/제어반이 열려 있습니다! 즉시 잠금 조치하세요.",
+                "🚨 기계실 온도가 높거나 환기가 안 됩니다! 환기 장치를 가동하세요.",
+                "🚨 버튼 작동 불량입니다! 유지보수 업체에 수리를 요청하세요.",
+                "🚨 합격증 또는 고유번호 훼손! 즉시 재부착하세요.",
+                "🚨 비상통화 불능! 즉각 수리가 필요합니다.",
+                "🚨 비상열쇠 부재! 지정 위치에 반드시 비치하세요.",
+            ]
+
+            for i in range(1, 7):
+                if f"법정직무조회{i}" in utterance:
+                    next_idx = i + 1
+                    next_text = (
+                        f"법정직무조회{next_idx}"
+                        if next_idx <= 6 else "법정직무조회7"
+                    )
+                    return kakao_res([{
+                        "basicCard": {
+                            "title": check_titles[i],
+                            "description": check_descs[i],
+                            "buttons": [
+                                {
+                                    "action": "message",
+                                    "label": "✅ 양호",
+                                    "messageText": f"{elv_no} {next_text}",
+                                },
+                                {
+                                    "action": "message",
+                                    "label": "❌ 불량",
+                                    "messageText": f"{elv_no} 법정직무불량{i}",
+                                },
+                            ],
+                        }
+                    }])
+
+            for i in range(1, 7):
+                if f"법정직무불량{i}" in utterance:
+                    next_text = (
+                        f"법정직무조회{i + 1}"
+                        if i + 1 <= 6 else "법정직무조회7"
+                    )
+                    return kakao_res([{
+                        "basicCard": {
+                            "title": f"⚠️ {i}번 불량 안내",
+                            "description": bad_descs[i],
+                            "buttons": [{
+                                "action": "message",
+                                "label": "🛠️ 조치 완료 (양호)",
+                                "messageText": f"{elv_no} {next_text}",
+                            }],
+                        }
+                    }])
+
+            if "법정직무조회7" in utterance:
+                root = get_api(URLS['BULD'], {
+                    'serviceKey': KEY,
+                    'elevator_no': elv_no,
+                    'numOfRows': 999,
+                })
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = (
+                        int(re.search(r'페이지(\d+)', utterance).group(1))
+                        if "페이지" in utterance else 1
+                    )
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        btns = [{
+                            "action": "message",
+                            "label": (
+                                f"{(it.findtext('installationPlace') or '-').strip()}"
+                                f"({it.findtext('elevatorNo')})"
+                            ),
+                            "messageText": (
+                                f"{it.findtext('elevatorNo')} 직무보험"
+                            ),
+                        } for it in display[i:i + 3]]
+                        cards.append({
+                            "title": f"🛡️ 보험 확인 ({start + i + 1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns,
+                        })
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 보기",
+                                "messageText": (
+                                    f"{elv_no} 법정직무조회7 페이지{page + 1}"
+                                ),
+                            }],
+                        })
+                    return kakao_res([{
+                        "carousel": {"type": "basicCard", "items": cards}
+                    }])
+
+            if "직무보험" in utterance:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "🛡️ 보험 가입 여부 확인",
+                        "description": make_insur_report(elv_no, info),
+                        "buttons": [{
+                            "action": "message",
+                            "label": "🔍 최근 점검 일지 조회",
+                            "messageText": f"{elv_no} 법정직무조회8",
+                        }],
+                    }
+                }])
+
+            if "법정직무조회8" in utterance:
+                root = get_api(URLS['BULD'], {
+                    'serviceKey': KEY,
+                    'elevator_no': elv_no,
+                    'numOfRows': 999,
+                })
+                if root is not None:
+                    items = root.findall('.//item')
+                    page = (
+                        int(re.search(r'페이지(\d+)', utterance).group(1))
+                        if "페이지" in utterance else 1
+                    )
+                    start = (page - 1) * 15
+                    display = items[start:start + 15]
+                    cards = []
+                    for i in range(0, len(display), 3):
+                        sub_items = display[i:i + 3]
+                        btns = [{
+                            "action": "message",
+                            "label": (
+                                f"{(it.findtext('installationPlace') or '-').strip()}"
+                                f"({it.findtext('elevatorNo')})"
+                            ),
+                            "messageText": (
+                                f"{it.findtext('elevatorNo')} 직무점검"
+                            ),
+                        } for it in sub_items]
+                        cards.append({
+                            "title": f"📝 점검 확인 ({start + i + 1}~)",
+                            "description": f"🏢 {info['buldNm']}",
+                            "buttons": btns,
+                        })
+                    if len(items) > start + 15:
+                        cards.append({
+                            "title": "🚀 다음 리스트",
+                            "buttons": [{
+                                "action": "message",
+                                "label": "➡️ 다음 보기",
+                                "messageText": (
+                                    f"{elv_no} 법정직무조회8 페이지{page + 1}"
+                                ),
+                            }],
+                        })
+                    return kakao_res([{
+                        "carousel": {"type": "basicCard", "items": cards}
+                    }])
+
+            if "직무점검" in utterance:
+                reports = make_check_duty_report(elv_no)
+                outputs = []
+                for ix, report in enumerate(reports):
+                    card = {"title": "🔍 최근 점검 일지 조회", "description": report}
+                    if ix == len(reports) - 1:
+                        card["buttons"] = [{
+                            "action": "message", "label": "🏁 모든 확인 완료",
+                            "messageText": f"{elv_no} 최종마무리",
+                        }]
+                    outputs.append({"textCard": card})
+                return kakao_res(outputs)
+
+            if "최종마무리" in utterance:
+                return kakao_res([{
+                    "basicCard": {
+                        "title": "✨ 수고하셨습니다!",
+                        "description": (
+                            f"건물({info['buldNm']})의 모든 확인을 마쳤습니다. 👍\n\n"
+                            "지금까지의 체크 리스트는 참고하시어 "
+                            "주기적으로 확인 하시기 바랍니다. 😄"
+                        ),
+                        "buttons": [{
+                            "action": "message",
+                            "label": "처음으로 돌아가기",
+                            "messageText": f"{elv_no}",
+                        }],
+                    }
+                }])
+
+            return kakao_res([{
+                "basicCard": {
+                    "title": f"🏢 {info['buldNm']}",
+                    "description": f"📍 주소: {info['addr']}",
+                    "buttons": [
+                        {
+                            "action": "message",
+                            "label": "👤 안전관리자 현황 조회",
+                            "messageText": f"{elv_no} 👤 안전관리자 현황 조회",
+                        },
+                        {
+                            "action": "message",
+                            "label": "🔍 승강기 정보 조회",
+                            "messageText": f"{elv_no} 호기정보",
+                        },
+                        {
+                            "action": "message",
+                            "label": "📋 보험·자체점검 조회",
+                            "messageText": f"{elv_no} 보험점검조회",
+                        },
+                    ],
+                }
+            }])
+
+        return kakao_res([{
+            "simpleText": {
+                "text": "❓ 고유번호 7자리를 입력해주세요."
+            }
+        }])
+
+    except Exception as e:
+        return kakao_res([{
+            "simpleText": {
+                "text": f"⚠️ 서버 오류: {str(e)}"
+            }
+        }])
+
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    content = request.get_json(silent=True)
+    if (
+        not isinstance(content, dict)
+        or not isinstance(content.get('userRequest'), dict)
+    ):
+        return jsonify({
+            'version': '2.0',
+            'template': {
+                'outputs': [{
+                    'simpleText': {
+                        'text': '요청 형식을 확인해 주세요.'
+                    }
+                }]
+            },
+        })
+
+    try:
+        reply, routed = bridge.handle(content)
+    except Exception:
+        app.logger.exception('request routing failed')
+        return kakao_res([{
+            'simpleText': {
+                'text': (
+                    '요청을 처리하지 못했습니다. '
+                    '잠시 후 다시 시도해 주세요.'
+                )
+            }
+        }])
+
+    if reply is not None:
+        return jsonify(reply)
+
+    g.routed_utterance = routed
+    return legacy_ask()
+
+
+if __name__ == '__main__':
+    app.run(
+        host='0.0.0.0',
+        port=int(os.environ.get("PORT", 5000)),
+                                )
