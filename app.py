@@ -221,9 +221,21 @@ def _insurance_summary(no):
             'end': format_dt(_value(item, 'contEnDe', default=''))}
 
 
+def _overview_text_card(title, lines):
+    # 제목과 본문을 합쳐 400자 이내. 긴 업체명만으로 하단 항목이 밀리지 않게 한다.
+    size = lambda value: len(value.encode('utf-16-le')) // 2
+    lines = list(lines)
+    while size(title + '\n'.join(lines)) > 400:
+        candidates = [i for i, line in enumerate(lines) if ': ' in line and size(line.split(': ', 1)[1]) > 4]
+        if not candidates:
+            break
+        i = max(candidates, key=lambda j: size(lines[j].split(': ', 1)[1]))
+        value = lines[i].removesuffix('…')
+        lines[i] = value[:-1] + '…'
+    return {'textCard': {'title': title, 'description': '\n'.join(lines)}}
+
+
 def make_building_overview(no, info):
-    # 기본 제원 + 카 치수는 첫 카드(필요 시 1000자 카드 분할),
-    # 최근 검사 / 점검 / 보험은 둘째 버튼 카드(400자 이내).
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(make_spec_report, no, info, True),
                    pool.submit(_latest_inspection_summary, no),
@@ -237,8 +249,9 @@ def make_building_overview(no, info):
                 values.append(None)
     specs, insp, check, insur = values
     spec_text = specs or '⚠️ 제원 조회 실패'
-    outputs = [{'simpleText': {'text': chunk}}
-               for chunk in _split_for_text(spec_text, 950)]
+    spec_lines = spec_text.splitlines()
+    if spec_lines and spec_lines[0] == '⚙️ [호기별 제원표]':
+        spec_lines.pop(0)
     lines = ['📋 [최근 검사정보]', '━━━━━━━━━━━━━━',
              f"📅 검사일: {insp['date'] if insp else '조회 실패'}",
              f"✅ 검사결과: {insp['result'] if insp else '조회 실패'}",
@@ -250,15 +263,21 @@ def make_building_overview(no, info):
              '', '🛡️ [보험 가입정보]', '━━━━━━━━━━━━━━',
              f"🏢 보험사: {insur['company'] if insur else '조회 실패'}",
              f"📅 보험 만료일: {insur['end'] if insur else '-'}"]
-    outputs.append({'textCard': {'title': f'🏢 {no} 종합정보',
-                    'description': '\n'.join(lines)[:390],
-                    'buttons': [
-                       {'action': 'message', 'label': '📋 검사 이력 조회',
-                        'messageText': f'{no} 검사이력조회'},
-                       {'action': 'message', 'label': '🔧 자체 점검 이력 조회',
-                        'messageText': f'{no} 결과확인 시작0'},
-                    ]}})
-    return outputs
+    return [
+        _overview_text_card('⚙️ [호기별 제원표]', spec_lines),
+        _overview_text_card(f'🏢 {no} 종합정보', lines),
+        {'textCard': {
+            'title': '추가 이력 조회',
+            'description': '확인할 이력을 선택해 주세요.',
+            'buttonLayout': 'vertical',
+            'buttons': [
+                {'action': 'message', 'label': '📋 검사 이력 조회',
+                 'messageText': f'{no} 검사이력조회'},
+                {'action': 'message', 'label': '🔧 자체 점검 이력 조회',
+                 'messageText': f'{no} 결과확인 시작0'},
+            ],
+        }},
+    ]
 
 
 def _split_for_text(text, limit):

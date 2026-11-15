@@ -241,6 +241,12 @@ class EmergencyRecord:
             if r is None:
                 return reply('호기를 먼저 선택해 주세요.')
             s['active']=None
+            if a=='다른호기':
+                return self.unit_list(s)
+            if a=='특이사항추가':
+                s['active']=(n,'특이사항')
+                return reply(f'{self.title(n,r)} | 특이사항 추가\n\n기록표에 추가할 특이사항을 입력해 주세요.',
+                             [self.button(s,n,'기록표 다시 출력','출력')])
             if a=='구역':
                 return reply(f'{self.title(n,r)} | 측정 구역 선택',self.zones(s,n,r,True))
             g=a.removeprefix('수정')
@@ -267,9 +273,14 @@ class EmergencyRecord:
                     _,auto,computed=self.calculate(r,g)
                     out.update(computed)
                     notes.extend(dict.fromkeys(auto+r['notes'].get(g,[])))
+                notes=list(dict.fromkeys(notes+r['notes'].get('특이사항',[])))
                 specs=dict(r['specs'],호기=r['label'],특이사항='\n'.join(notes))
                 outputs=self.render(n,specs,out)
-                return reply('', [self.button(s,n,'제원표로 돌아가기','메뉴')],outputs=outputs)
+                return reply('밑에 원하는 항목을 선택해 주세요.', [
+                    self.button(s,n,'다른 호기 입력','다른호기'),
+                    self.button(s,n,'제원 수정/추가','제원'),
+                    self.button(s,n,'특이사항 추가','특이사항추가'),
+                ], outputs=outputs)
             return self.menu(s,n,r)
         if s['units'] is None:
             if not re.fullmatch(NUMBER,raw):
@@ -284,6 +295,16 @@ class EmergencyRecord:
             return reply('기록할 호기와 구역의 버튼을 먼저 눌러 주세요.') if re.match(r'^[.0-9]',raw) and not re.fullmatch(NUMBER,raw) else None
         n,g=active
         r=s['records'][n]
+        if g=='특이사항':
+            extra=[line.strip() for line in raw.splitlines() if line.strip()]
+            merged=list(dict.fromkeys(r['notes'].get(g,[])+extra))
+            if not extra or len('\n'.join(merged))>420:
+                return reply('특이사항을 입력해 주세요. 추가 특이사항은 총 420자까지 기록할 수 있습니다.',
+                             [self.button(s,n,'기록표 다시 출력','출력')])
+            r['notes'][g]=merged
+            s['active']=None
+            return reply(f'{self.title(n,r)} | 특이사항을 추가했습니다.',
+                         [self.button(s,n,'기록표 다시 출력','출력')])
         if g=='제원':
             pending={}
             for line in raw.splitlines():
